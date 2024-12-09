@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import json
-import tempfile
+import io
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -12,8 +12,21 @@ from openai import OpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+
+DRIVE_FOLDER_ID = "1A5TaBdAnA9JQZ73H6ckFgPEytQ_nSPMD"
+SERVICE_ACCOUNT_FILE = "service_account.json"
+FEEDBACK_FILENAME = "feedback_log.csv"
+
 def main():
     st.title("Rent Roll Processing App - Step 1: Standardization Only")
+
+    if "original_drive_id" not in st.session_state:
+        st.session_state.original_drive_id = None
+    if "standardized_drive_id" not in st.session_state:
+        st.session_state.standardized_drive_id = None
 
     # Sidebar for file metadata selection
     st.sidebar.header("File Metadata")
@@ -21,147 +34,197 @@ def main():
     template_type = st.sidebar.selectbox("Template Type", ["OneSite", "Yardi", "Resman", "Entrada", "AMSI", "Other"])
     file_type = st.sidebar.selectbox("File Type", ["Single-line Data Rows", "Multi-line Data Rows"])
 
-    # File upload
     uploaded_file = st.file_uploader("Upload Rent Roll Excel File (.xlsx only)", type=["xlsx", "xls"])
 
     if uploaded_file:
-        st.write("**Debugging Mode:** You are focusing only on standardization.")
-        st.write("**Steps:**")
+        st.write("**Debugging Mode:** Focus on standardization only.")
+        st.write("Steps:")
         st.write("1. Reading file.")
         st.write("2. Identifying header rows.")
-        st.write("3. Attempting to standardize headers using an LLM model.")
-        st.write("4. Ensuring essential columns (like 'Unit') are found.")
-        st.write("5. Applying breaking point logic to isolate unit rows.")
+        st.write("3. Standardizing headers using LLM.")
+        st.write("4. Ensuring essential columns found.")
+        st.write("5. Applying breaking point logic.")
         st.write("6. Confirming unit count.")
 
-
-        # Process the file
         process_file(uploaded_file, origin, template_type, file_type)
+
+def get_drive_service():
+    credentials = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    service = build('drive', 'v3', credentials=credentials)
+    return service
+
+def get_feedback_file_id(service):
+    query = f"parents = '{DRIVE_FOLDER_ID}' and name = '{FEEDBACK_FILENAME}' and mimeType='text/csv'"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    files = results.get('files', [])
+    if files:
+        return files[0]['id']
+    else:
+        # Create an empty feedback_log.csv in Drive
+        empty_data = "File Name,Origin,Template Type,File Type,Stage,Status,Comments\n"
+        media = MediaIoBaseUpload(io.BytesIO(empty_data.encode('utf-8')), mimetype='text/csv')
+        file_metadata = {
+            'name': FEEDBACK_FILENAME,
+            'parents': [DRIVE_FOLDER_ID],
+            'mimeType': 'text/csv'
+        }
+        file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        return file.get('id')
+
+def load_feedback_log(service, file_id):
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.seek(0)
+    content = fh.read().decode('utf-8', errors='replace')
+    if content.strip() == "":
+        return pd.DataFrame(columns=["File Name","Origin","Template Type","File Type","Stage","Status","Comments"])
+    else:
+        return pd.read_csv(io.StringIO(content))
+
+def save_feedback_to_drive(service, file_id, df):
+    csv_data = df.to_csv(index=False)
+    media = MediaIoBaseUpload(io.BytesIO(csv_data.encode('utf-8')), mimetype='text/csv', resumable=True)
+    service.files().update(fileId=file_id, media_body=media).execute()
+
+def upload_to_drive(file_content, filename, folder_id, mime_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'):
+    # file_content is a BytesIO or file-like object
+    file_content.seek(0)
+    service = get_drive_service()
+    file_metadata = {
+        'name': filename,
+        'parents': [folder_id]
+    }
+    media = MediaIoBaseUpload(file_content, mimetype=mime_type, resumable=True)
+    uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    return uploaded_file.get('id')
 
 def process_file(uploaded_file, origin, template_type, file_type):
     st.write("Processing file:", uploaded_file.name)
-    # Save uploaded file to a temporary location
-    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-        fp = tmp_file.name
-        tmp_file.write(uploaded_file.getbuffer())
 
+    # Load the original file from the uploaded buffer directly into pandas
+    # No local saving
     try:
-        # Read the Excel file
-        sheet_data = pd.read_excel(fp, sheet_name=0, header=None)
+        sheet_data = pd.read_excel(uploaded_file, sheet_name=0, header=None)
     except Exception as e:
         st.error(f"Failed to read Excel file: {e}")
         return
 
-    st.write("**Raw Data (first few rows):**")
     display_df_with_unique_cols(sheet_data.head(), "Original Data:")
 
-    # Step 1: Standardization
     standardized_df = standardize_data(sheet_data)
     if standardized_df is None:
-        st.error("Standardization could not be completed. Check the logs for details.")
         return
 
-    # Save standardized data to Excel
-    base_name, _ = os.path.splitext(uploaded_file.name)
-    standardized_output_path = os.path.join('outputs', f'standardized_{base_name}.xlsx')
-    os.makedirs('outputs', exist_ok=True)
-    
-    # Use openpyxl engine for xlsx format
-    standardized_df.to_excel(standardized_output_path, index=False, engine='openpyxl')
-    st.success(f"Standardized data saved to {standardized_output_path}")
+    # Convert original file (uploaded_file) to a BytesIO for upload
+    uploaded_file.seek(0)
+    original_file_content = io.BytesIO(uploaded_file.read())
+    original_file_content.seek(0)
+
+    # Convert standardized_df to a BytesIO (Excel in memory)
+    standardized_buffer = io.BytesIO()
+    standardized_df.to_excel(standardized_buffer, index=False, engine='openpyxl')
+    standardized_buffer.seek(0)
+
+    # Upload both original and standardized files to Google Drive only if not done before
+    if st.session_state.original_drive_id is None and st.session_state.standardized_drive_id is None:
+        original_drive_id = upload_to_drive(original_file_content, uploaded_file.name, DRIVE_FOLDER_ID)
+        standardized_drive_id = upload_to_drive(standardized_buffer, f'standardized_{uploaded_file.name}', DRIVE_FOLDER_ID)
+        st.success(f"Original file uploaded to Google Drive. File ID: {original_drive_id}")
+        st.success(f"Standardized data uploaded to Google Drive. File ID: {standardized_drive_id}")
+
+        st.session_state.original_drive_id = original_drive_id
+        st.session_state.standardized_drive_id = standardized_drive_id
+    else:
+        st.write("Files already uploaded to Google Drive:")
+        st.write(f"Original Drive ID: {st.session_state.original_drive_id}")
+        st.write(f"Standardized Drive ID: {st.session_state.standardized_drive_id}")
 
     # Standardization Review
     st.subheader("Standardization Review")
     standardization_status = st.radio("Is the standardization correct?", ["Correct", "Incorrect"], key="std_status")
     standardization_comments = st.text_area("Comments on Standardization", "", key="std_comments")
 
-    # Save feedback
     if st.button("Submit Standardization Feedback"):
-        save_feedback(uploaded_file.name, origin, template_type, file_type,
-                      standardization_status, standardization_comments, "Standardization")
+        service = get_drive_service()
+        feedback_file_id = get_feedback_file_id(service)
+        feedback_df = load_feedback_log(service, feedback_file_id)
+
+        new_entry = {
+            "File Name": uploaded_file.name,
+            "Origin": origin,
+            "Template Type": template_type,
+            "File Type": file_type,
+            "Stage": "Standardization",
+            "Status": standardization_status,
+            "Comments": standardization_comments
+        }
+        # Use pd.concat since append is deprecated
+        feedback_df = pd.concat([feedback_df, pd.DataFrame([new_entry])], ignore_index=True)
+
+        save_feedback_to_drive(service, feedback_file_id, feedback_df)
         st.success("Standardization feedback submitted.")
+        st.success("Feedback log updated on Google Drive.")
 
 def standardize_data(sheet_data):
-    """
-    Standardizes the data by:
-    1. Identifying and merging header rows.
-    2. Using the GPT model (with retries) to standardize headers.
-    3. Verifying that essential columns are present.
-    4. Cleaning data further.
-    5. Applying breaking point logic and displaying the number of unique units.
-    """
-
-    # Define the keywords for identifying header rows
     keywords = [
-        # Unit-related
         'unit', 'unit id', 'unit number', 'unit no', 'unit designation',
-        # Move-in/out dates
         'move-in', 'move in', 'movein', 'move-in date', 'move in date', 'moveindate',
         'move-out', 'move out', 'moveout', 'move-out date', 'move out date', 'moveoutdate',
-        # Lease-related
         'lease', 'lease start', 'lease start date', 'lease begin', 'start of lease',
         'lease end', 'lease end date', 'lease expiration', 'end of lease',
-        # Rent-related
         'rent', 'market rent', 'lease rent', 'market + addl.', 'market',
-        # Occupancy status
         'unit status', 'lease status', 'occupancy', 'unit/lease status',
-        # Floor plan
         'floorplan', 'floor plan',
-        # Square footage
         'sqft', 'sq ft', 'square feet', 'square ft', 'square footage', 'sq. ft.', 'sq.ft',
         'unit sqft', 'unit size',
-        # Codes and transactions
         'code', 'charge code', 'trans code', 'transaction code', 'description'
     ]
 
     if sheet_data.empty:
-        st.error("The provided sheet is empty. Cannot proceed with standardization.")
+        st.error("The provided sheet is empty. Cannot proceed.")
         return None
 
-    # Normalize data for header identification
     normalized_data = sheet_data.applymap(lambda x: str(x).lower() if pd.notnull(x) else '')
     normalized_data['keyword_count'] = normalized_data.apply(
         lambda row: sum(row.str.contains('|'.join(keywords), regex=True)),
         axis=1
     )
 
-    # Potential header candidates
     header_candidates = normalized_data[normalized_data['keyword_count'] >= 3]
-
     if header_candidates.empty:
         st.error("No suitable header rows found. Header identification failed.")
         return None
     else:
-        st.write("**Debug Info:** Candidate header rows identified:")
         display_df_with_unique_cols(header_candidates.head(), "Header Candidates:")
 
-    # Select and merge the first valid header row
     selected_header_df = merge_and_select_first_header_to_bottom(header_candidates, 'keyword_count', keywords)
-
     if selected_header_df.empty:
-        st.error("No suitable merged header row found. Please check the input file.")
+        st.error("No suitable merged header row found. Check the input file.")
         return None
     else:
-        st.write("**Debug Info:** Selected and merged header row:")
         display_df_with_unique_cols(selected_header_df, "Selected Header Row:")
 
-    # Set headers and trim top rows
     sheet_data.columns = selected_header_df.iloc[0, :-1]
     data_start_idx = selected_header_df.index[0] + 1
     df = sheet_data[data_start_idx:].reset_index(drop=True)
     df.columns = df.columns.str.strip()
 
     if len(df.columns) == 0:
-        st.error("No columns found after setting headers. Standardization aborted.")
+        st.error("No columns found after setting headers. Aborted.")
         return None
 
-    st.write("**Debug Info:** Columns detected before GPT standardization:")
-    st.write(list(df.columns))
+    st.write("**Debug Info:** Columns before GPT standardization:", list(df.columns))
 
-    # GPT Standardization step
     instructions_prompt = standardization_instructions()
     headers_to_standardize = list(df.columns)
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])                    
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
     standardized_headers = standardize_headers_with_retries(headers_to_standardize, instructions_prompt, client)
 
     if not standardized_headers:
@@ -171,89 +234,69 @@ def standardize_data(sheet_data):
     standardized_headers = make_column_names_unique(standardized_headers)
     df.columns = standardized_headers
 
-    st.write("**Debug Info:** Columns after GPT standardization:")
-    st.write(list(df.columns))
+    st.write("**Debug Info:** Columns after GPT standardization:", list(df.columns))
 
-    # Ensure 'Unit' column is present
     if "Unit" not in df.columns:
-        st.error("No 'Unit' column found. Possibly the standardization failed to map a unit column.")
+        st.error("No 'Unit' column found. Possibly failed to map a unit column.")
         return None
 
-    # Ensure the DataFrame is not empty
     if df.empty:
         st.error("No data rows remain after initial cleaning.")
         return None
 
-    # Further cleaning steps
-    # Drop rows with all NaNs and replace special characters
     df = df.dropna(how='all')
     df = df.replace({r'[\*,]': ''}, regex=True)
 
-    # Drop rows containing only strings (no numeric or date-like values)
     before_filtering_count = len(df)
     df = df[df.apply(lambda row: any(pd.to_numeric(row, errors='coerce').notnull()), axis=1)]
-    st.write(f"**Debug Info:** Dropped {before_filtering_count - len(df)} rows that had no numeric values.")
+    st.write(f"Dropped {before_filtering_count - len(df)} rows with no numeric values.")
     df.reset_index(drop=True, inplace=True)
 
-    # Apply breaking point logic
-    st.write("**Debug Info:** Applying breaking point logic...")
-    st.write(f"DataFrame shape before breaking point logic: {df.shape}")
+    st.write("Applying breaking point logic...")
+    st.write(f"DataFrame shape before breaking point: {df.shape}")
     breaking_point = find_breaking_point(df)
 
     if breaking_point is not None:
-        st.write(f"**Debug Info:** Breaking point found at row index {breaking_point}.")
+        st.write(f"Breaking point found at row {breaking_point}.")
         unit_df = df[:breaking_point]
     else:
-        st.write("**Debug Info:** No breaking point found. Using entire DataFrame as unit data.")
+        st.write("No breaking point found. Using entire DataFrame as unit data.")
         unit_df = df
 
-    # Clean final unit_df
     unit_df.dropna(axis=0, how='all', inplace=True)
     unit_df.dropna(axis=1, how='all', inplace=True)
-    st.write("**Debug Info:** DataFrame shape after breaking point filtering:", unit_df.shape)
+    st.write("DataFrame shape after breaking point filtering:", unit_df.shape)
 
-    # Display final standardized data
     display_df_with_unique_cols(unit_df, "Final Standardized Data (All Rows):")
 
-    # Show number of unique units to confirm correct unit identification
     unique_units = unit_df['Unit'].nunique()
-    st.write(f"**Debug Info:** Number of unique units identified: {unique_units}")
+    st.write(f"Number of unique units identified: {unique_units}")
 
     if unique_units == 0:
-        st.warning("No unique units detected. Check if the 'Unit' column or breaking point logic is correct.")
+        st.warning("No unique units detected. Check the 'Unit' column or breaking point logic.")
 
     return unit_df
 
 def find_breaking_point(data):
-    """
-    Identify the "breaking point" in the DataFrame where rows no longer represent valid unit data.
-    This logic helps separate actual unit data from any subsequent summary rows or extra data.
-    """
     for index, row in data.iterrows():
         if pd.notnull(row.get('Unit')):
-            # Validate numeric fields
             lease_start_exists = 'Lease Start Date' in data.columns
             if not (
                 (pd.notnull(row.get('Sqft')) and float(row.get('Sqft', 0)) < 10000) and
-                (pd.notnull(row.get('Market Rent')) or
-                 (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
+                (pd.notnull(row.get('Market Rent')) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
             ):
                 return index
 
-            # Ensure Occupancy Status is a string if present
             if 'Occupancy Status' in data.columns:
                 if pd.notnull(row.get('Occupancy Status')) and not isinstance(row.get('Occupancy Status'), str):
                     return index
 
-            # Ensure Charge Codes is a string if present
             if 'Charge Codes' in data.columns:
                 if pd.notnull(row.get('Charge Codes')) and not isinstance(row.get('Charge Codes'), str):
                     return index
         else:
-            # If Unit is absent, ensure no unit-specific numeric fields present
             if pd.notnull(row.get('Sqft')) or pd.notnull(row.get('Market Rent')):
                 return index
-
             if 'Charge Codes' in data.columns:
                 if pd.notnull(row.get('Charge Codes')) and row.isnull().all():
                     return index
@@ -261,7 +304,6 @@ def find_breaking_point(data):
     return None
 
 def merge_and_select_first_header_to_bottom(df, keyword_column, keywords):
-    # Merge header rows if needed
     df = df.sort_index()
     merged_header = None
     final_header = None
@@ -274,10 +316,7 @@ def merge_and_select_first_header_to_bottom(df, keyword_column, keywords):
 
         if idx - merged_header.name == 1:
             combined_row = merged_header[:-1] + " " + row[:-1]
-            combined_keyword_count = sum(
-                combined_row.str.contains('|'.join(keywords), regex=True)
-            )
-
+            combined_keyword_count = sum(combined_row.str.contains('|'.join(keywords), regex=True))
             if combined_keyword_count > merged_header[keyword_column]:
                 row[:-1] = combined_row
                 row[keyword_column] = combined_keyword_count
@@ -350,8 +389,6 @@ def gpt_model(instructions_prompt, header, client):
     )
 
     response_content = response.choices[0].message.content
-
-    # Parse the response
     try:
         standardized_headers = json.loads(response_content)['standardized_headers']
     except (json.JSONDecodeError, KeyError):
@@ -372,20 +409,17 @@ def standardize_headers_with_retries(headers_to_standardize, instructions_prompt
             with st.spinner(f'GPT Standardization Attempt {attempt}/{max_retries}...'):
                 standardized_headers = gpt_model(instructions_prompt, headers_to_standardize, client)
         except Exception as e:
-            st.warning(f"GPT-based standardization attempt {attempt} failed due to an error: {e}")
+            st.warning(f"GPT attempt {attempt} failed: {e}")
             standardized_headers = None
 
         if standardized_headers is not None and len(standardized_headers) != len(headers_to_standardize):
-            st.warning("GPT-based standardization returned a mismatched number of headers.")
+            st.warning("GPT returned mismatched number of headers.")
             standardized_headers = None
 
     return standardized_headers
 
 def make_column_names_unique(column_names):
-    cols = pd.Series(column_names)
-    cols = cols.fillna('Unnamed')
-    cols = cols.replace('', 'Unnamed')
-
+    cols = pd.Series(column_names).fillna('Unnamed').replace('', 'Unnamed')
     duplicates = cols.duplicated(keep=False)
     counts = {}
     for idx, col in enumerate(cols):
@@ -399,25 +433,6 @@ def make_column_names_unique(column_names):
 
     return cols.tolist()
 
-def save_feedback(file_name, origin, template_type, file_type, status, comments, stage):
-    feedback = {
-        "File Name": file_name,
-        "Origin": origin,
-        "Template Type": template_type,
-        "File Type": file_type,
-        "Stage": stage,
-        "Status": status,
-        "Comments": comments
-    }
-
-    feedback_file = "feedback_log.csv"
-    feedback_df = pd.DataFrame([feedback])
-
-    if os.path.exists(feedback_file):
-        feedback_df.to_csv(feedback_file, mode='a', header=False, index=False)
-    else:
-        feedback_df.to_csv(feedback_file, index=False)
-
 def display_df_with_unique_cols(df, message=""):
     if message:
         st.write(message)
@@ -428,10 +443,10 @@ def display_df_with_unique_cols(df, message=""):
     for col in display_df.columns:
         if col in seen:
             seen[col] += 1
-            new_cols.append(f"{col}_{seen[col]}" if col != '' else f"Unnamed_{seen[col]}")
+            new_cols.append(f"{col}_{seen[col]}" if col else f"Unnamed_{seen[col]}")
         else:
             seen[col] = 0
-            new_cols.append(col if col != '' else "Unnamed")
+            new_cols.append(col if col else "Unnamed")
 
     display_df.columns = new_cols
     st.dataframe(display_df)
