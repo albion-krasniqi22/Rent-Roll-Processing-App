@@ -161,7 +161,7 @@ def standardize_data(sheet_data):
     # GPT Standardization step
     instructions_prompt = standardization_instructions()
     headers_to_standardize = list(df.columns)
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])                    
     standardized_headers = standardize_headers_with_retries(headers_to_standardize, instructions_prompt, client)
 
     if not standardized_headers:
