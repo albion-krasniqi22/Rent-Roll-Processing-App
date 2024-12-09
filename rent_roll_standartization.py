@@ -16,8 +16,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
+
 DRIVE_FOLDER_ID = "1A5TaBdAnA9JQZ73H6ckFgPEytQ_nSPMD"
-SERVICE_ACCOUNT_FILE = "service_account.json"
 FEEDBACK_FILENAME = "feedback_log.csv"
 
 def main():
@@ -49,9 +49,22 @@ def main():
         process_file(uploaded_file, origin, template_type, file_type)
 
 def get_drive_service():
-    credentials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
-        scopes=["https://www.googleapis.com/auth/drive"]
+    # Construct credentials from TOML secrets instead of a JSON file
+    credentials_info = {
+        "type": "service_account",
+        "project_id": st.secrets["gcp_service_account"]["project_id"],
+        "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+        "private_key": st.secrets["gcp_service_account"]["private_key"],
+        "client_email": st.secrets["gcp_service_account"]["client_email"],
+        "client_id": st.secrets["gcp_service_account"]["client_id"],
+        "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
+        "token_uri": st.secrets["gcp_service_account"]["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+    }
+
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_info, scopes=["https://www.googleapis.com/auth/drive"]
     )
     service = build('drive', 'v3', credentials=credentials)
     return service
