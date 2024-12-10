@@ -22,8 +22,7 @@ FEEDBACK_FILENAME = "feedback_log.csv"
 
 def main():
     st.title("Rent Roll Processing App - Step 1: Standardization Only")
-    st.write(st.secrets)
-
+    
     if "original_drive_id" not in st.session_state:
         st.session_state.original_drive_id = None
     if "standardized_drive_id" not in st.session_state:
