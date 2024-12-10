@@ -412,7 +412,7 @@ def gpt_model(instructions_prompt, header, client):
 
     return standardized_headers
 
-def standardize_headers_with_retries(headers_to_standardize, instructions_prompt, client, max_retries=2):
+def standardize_headers_with_retries(headers_to_standardize, instructions_prompt, client, max_retries=4):
     attempt = 0
     standardized_headers = None
 
