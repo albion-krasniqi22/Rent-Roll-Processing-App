@@ -179,8 +179,35 @@ def process_file(uploaded_file, origin, template_type, file_type):
             st.subheader("LLM Processing Results")
             processed_df = llm_processing(standardized_df)
             processed_df = processed_df.drop(columns=['Unit'])
+            processed_df['Unit No.'] = processed_df['Unit No.'].astype(str)
+
+            # List of specified columns
+            specified_order = [
+                'Unit No.', 
+                'Floor Plan Code', 
+                'Net sf', 
+                'Occupancy Status / Code', 
+                'Enter "F" for Future Lease', 
+                'Market Rent', 
+                'Lease Start Date', 
+                'Lease Expiration', 
+                'Lease Term (months)', 
+                'Move In Date', 
+                'Move Out Date'
+            ]
+
+            # Ensure all specified columns exist in the DataFrame
+            existing_columns = [col for col in specified_order if col in processed_df.columns]
+
+            # Get remaining columns not in the specified list
+            remaining_columns = [col for col in processed_df.columns if col not in existing_columns]
+
+            # Reorder the DataFrame
+            processed_df = processed_df[existing_columns + remaining_columns]
+
             processed_df = processed_df.sort_values(by=['Unit No.'])
             processed_df = processed_df.reset_index(drop=True)
+
             if processed_df is not None:
                 st.success("LLM Processing completed successfully!")
                 display_df_with_unique_cols(processed_df, "Final Processed Data:")
