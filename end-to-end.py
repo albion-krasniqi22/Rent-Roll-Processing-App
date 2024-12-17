@@ -135,6 +135,17 @@ def process_file(uploaded_file, origin, template_type, file_type):
 
     try:
         sheet_data = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+        
+        # Save original file to drive
+        uploaded_file.seek(0)
+        original_file_id = upload_to_drive(
+            uploaded_file, 
+            f"original_{uploaded_file.name}", 
+            DRIVE_FOLDER_ID
+        )
+        st.session_state.original_drive_id = original_file_id
+        st.success(f"Original file saved to Drive with ID: {original_file_id}")
+        
     except Exception as e:
         st.error(f"Failed to read Excel file: {e}")
         return
@@ -143,6 +154,18 @@ def process_file(uploaded_file, origin, template_type, file_type):
     standardized_df = standardize_data(sheet_data)
     if standardized_df is None:
         return
+
+    # Save standardized version to drive
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        standardized_df.to_excel(writer, index=False)
+    standardized_file_id = upload_to_drive(
+        output, 
+        f"standardized_{uploaded_file.name}", 
+        DRIVE_FOLDER_ID
+    )
+    st.session_state.standardized_drive_id = standardized_file_id
+    st.success(f"Standardized file saved to Drive with ID: {standardized_file_id}")
 
     # Single Standardization Review
     st.subheader("Standardization Review")
@@ -211,6 +234,17 @@ def process_file(uploaded_file, origin, template_type, file_type):
             if processed_df is not None:
                 st.success("LLM Processing completed successfully!")
                 display_df_with_unique_cols(processed_df, "Final Processed Data:")
+
+                # Save processed data to drive
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    processed_df.to_excel(writer, index=False)
+                processed_file_id = upload_to_drive(
+                    output, 
+                    f"processed_llm_{uploaded_file.name}", 
+                    DRIVE_FOLDER_ID
+                )
+                st.success(f"Processed file saved to Drive with ID: {processed_file_id}")
 
                 # LLM Output Review
                 st.subheader("LLM Output Review")
