@@ -29,12 +29,13 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
 
-DRIVE_FOLDER_ID = "1A5TaBdAnA9JQZ73H6ckFgPEytQ_nSPMD"
+DRIVE_FOLDER_ID = "1KZtAaDjilfUk-trWDZX1ePvErt24iEGa"
 FEEDBACK_FILENAME = "feedback_log.csv"
 
 def main():
     st.title("Rent Roll Processing App - Step 1: Standardization Only")
     
+    # Initialize all session state variables
     if "original_drive_id" not in st.session_state:
         st.session_state.original_drive_id = None
     if "standardized_drive_id" not in st.session_state:
@@ -43,6 +44,12 @@ def main():
         st.session_state.standardization_correct = False
     if "llm_feedback_submitted" not in st.session_state:
         st.session_state.llm_feedback_submitted = False
+    if "original_file_saved" not in st.session_state:
+        st.session_state.original_file_saved = False
+    if "standardized_file_saved" not in st.session_state:
+        st.session_state.standardized_file_saved = False
+    if "processed_llm_file_saved" not in st.session_state:
+        st.session_state.processed_llm_file_saved = False
 
     # Sidebar for file metadata selection
     st.sidebar.header("File Metadata")
@@ -140,15 +147,17 @@ def process_file(uploaded_file, origin, template_type, file_type):
     try:
         sheet_data = pd.read_excel(uploaded_file, sheet_name=0, header=None)
         
-        # Save original file to drive
-        uploaded_file.seek(0)
-        original_file_id = upload_to_drive(
-            uploaded_file, 
-            f"original_{uploaded_file.name}", 
-            DRIVE_FOLDER_ID
-        )
-        st.session_state.original_drive_id = original_file_id
-        st.success(f"Original file saved to Drive with ID: {original_file_id}")
+        # Save original file to drive only if not already saved
+        if not st.session_state.original_file_saved:
+            uploaded_file.seek(0)
+            original_file_id = upload_to_drive(
+                uploaded_file, 
+                f"original_{uploaded_file.name}", 
+                DRIVE_FOLDER_ID
+            )
+            st.session_state.original_drive_id = original_file_id
+            st.session_state.original_file_saved = True
+            st.success(f"Original file saved to Drive with ID: {original_file_id}")
         
     except Exception as e:
         st.error(f"Failed to read Excel file: {e}")
@@ -159,17 +168,19 @@ def process_file(uploaded_file, origin, template_type, file_type):
     if standardized_df is None:
         return
 
-    # Save standardized version to drive
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        standardized_df.to_excel(writer, index=False)
-    standardized_file_id = upload_to_drive(
-        output, 
-        f"standardized_{uploaded_file.name}", 
-        DRIVE_FOLDER_ID
-    )
-    st.session_state.standardized_drive_id = standardized_file_id
-    st.success(f"Standardized file saved to Drive with ID: {standardized_file_id}")
+    # Save standardized version to drive only if not already saved
+    if not st.session_state.standardized_file_saved:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            standardized_df.to_excel(writer, index=False)
+        standardized_file_id = upload_to_drive(
+            output, 
+            f"standardized_{uploaded_file.name}", 
+            DRIVE_FOLDER_ID
+        )
+        st.session_state.standardized_drive_id = standardized_file_id
+        st.session_state.standardized_file_saved = True
+        st.success(f"Standardized file saved to Drive with ID: {standardized_file_id}")
 
     # Single Standardization Review
     if not st.session_state.standardization_correct:
@@ -243,16 +254,18 @@ def process_file(uploaded_file, origin, template_type, file_type):
             st.success("LLM Processing completed successfully!")
             display_df_with_unique_cols(processed_df, "Final Processed Data:")
 
-            # Save processed data to drive
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                processed_df.to_excel(writer, index=False)
-            processed_file_id = upload_to_drive(
-                output, 
-                f"processed_llm_{uploaded_file.name}", 
-                DRIVE_FOLDER_ID
-            )
-            st.success(f"Processed file saved to Drive with ID: {processed_file_id}")
+            # Save processed data to drive only if not already saved
+            if not st.session_state.processed_llm_file_saved:
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    processed_df.to_excel(writer, index=False)
+                processed_file_id = upload_to_drive(
+                    output, 
+                    f"processed_llm_{uploaded_file.name}", 
+                    DRIVE_FOLDER_ID
+                )
+                st.session_state.processed_llm_file_saved = True
+                st.success(f"Processed file saved to Drive with ID: {processed_file_id}")
 
             # LLM Output Review
             if not st.session_state.llm_feedback_submitted:
@@ -750,9 +763,7 @@ def llm_processing(unit_df):
 
         return combined_data
 
-    # Combine outputs and display results
     combined_data = combine_saved_outputs()
-
     # Convert combined data to DataFrame
     rows = []
     def flatten_data(unit, details):
@@ -794,7 +805,6 @@ def save_feedback(file_name, origin, template_type, file_type, status, comments,
         feedback_df.to_csv(feedback_file, mode='a', header=False, index=False)
     else:
         feedback_df.to_csv(feedback_file, index=False)
-
-
+        
 if __name__ == "__main__":
     main()
