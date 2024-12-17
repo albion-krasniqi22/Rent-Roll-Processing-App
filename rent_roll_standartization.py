@@ -264,6 +264,7 @@ def standardize_data(sheet_data):
 
     st.write("Applying breaking point logic...")
     st.write(f"DataFrame shape before breaking point: {df.shape}")
+    st.write(df)
     breaking_point = find_breaking_point(df)
 
     if breaking_point is not None:
