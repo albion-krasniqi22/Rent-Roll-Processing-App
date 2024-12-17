@@ -39,6 +39,10 @@ def main():
         st.session_state.original_drive_id = None
     if "standardized_drive_id" not in st.session_state:
         st.session_state.standardized_drive_id = None
+    if "standardization_correct" not in st.session_state:
+        st.session_state.standardization_correct = False
+    if "llm_feedback_submitted" not in st.session_state:
+        st.session_state.llm_feedback_submitted = False
 
     # Sidebar for file metadata selection
     st.sidebar.header("File Metadata")
@@ -168,91 +172,99 @@ def process_file(uploaded_file, origin, template_type, file_type):
     st.success(f"Standardized file saved to Drive with ID: {standardized_file_id}")
 
     # Single Standardization Review
-    st.subheader("Standardization Review")
-    standardization_status = st.radio("Is the standardization correct?", ["Correct", "Incorrect"], key="std_status")
-    standardization_comments = st.text_area("Comments on Standardization", "", key="std_comments")
+    if not st.session_state.standardization_correct:
+        st.subheader("Standardization Review")
+        standardization_status = st.radio("Is the standardization correct?", ["Correct", "Incorrect"], key="std_status")
+        standardization_comments = st.text_area("Comments on Standardization", "", key="std_comments")
 
-    if standardization_status == "Correct":
-        button_label = "Submit Review and Continue to LLM Processing"
-    else:
-        button_label = "Submit Feedback"
-
-    if st.button(button_label):
-        service = get_drive_service()
-        feedback_file_id = get_feedback_file_id(service)
-        feedback_df = load_feedback_log(service, feedback_file_id)
-
-        # Save standardization feedback
-        standardization_entry = {
-            "File Name": uploaded_file.name,
-            "Origin": origin,
-            "Template Type": template_type,
-            "File Type": file_type,
-            "Stage": "Standardization",
-            "Status": standardization_status,
-            "Comments": standardization_comments
-        }
-        feedback_df = pd.concat([feedback_df, pd.DataFrame([standardization_entry])], ignore_index=True)
-        save_feedback_to_drive(service, feedback_file_id, feedback_df)
-        st.success("Standardization feedback submitted.")
-
-        # Only proceed to LLM processing if standardization is marked as correct
         if standardization_status == "Correct":
-            # Step 2: LLM Processing
-            st.subheader("LLM Processing Results")
-            processed_df = llm_processing(standardized_df)
-            processed_df = processed_df.drop(columns=['Unit'])
-            processed_df['Unit No.'] = processed_df['Unit No.'].astype(str)
+            button_label = "Submit Review and Continue to LLM Processing"
+        else:
+            button_label = "Submit Feedback"
 
-            # List of specified columns
-            specified_order = [
-                'Unit No.', 
-                'Floor Plan Code', 
-                'Net sf', 
-                'Occupancy Status / Code', 
-                'Enter "F" for Future Lease', 
-                'Market Rent', 
-                'Lease Start Date', 
-                'Lease Expiration', 
-                'Lease Term (months)', 
-                'Move In Date', 
-                'Move Out Date'
-            ]
+        if st.button(button_label):
+            service = get_drive_service()
+            feedback_file_id = get_feedback_file_id(service)
+            feedback_df = load_feedback_log(service, feedback_file_id)
 
-            # Ensure all specified columns exist in the DataFrame
-            existing_columns = [col for col in specified_order if col in processed_df.columns]
+            # Save standardization feedback
+            standardization_entry = {
+                "File Name": uploaded_file.name,
+                "Origin": origin,
+                "Template Type": template_type,
+                "File Type": file_type,
+                "Stage": "Standardization",
+                "Status": standardization_status,
+                "Comments": standardization_comments
+            }
+            feedback_df = pd.concat([feedback_df, pd.DataFrame([standardization_entry])], ignore_index=True)
+            save_feedback_to_drive(service, feedback_file_id, feedback_df)
+            st.success("Standardization feedback submitted.")
 
-            # Get remaining columns not in the specified list
-            remaining_columns = [col for col in processed_df.columns if col not in existing_columns]
+            if standardization_status == "Correct":
+                st.session_state.standardization_correct = True
 
-            # Reorder the DataFrame
-            processed_df = processed_df[existing_columns + remaining_columns]
+    # Only proceed to LLM processing if standardization is marked as correct
+    if st.session_state.standardization_correct:
+        # Step 2: LLM Processing
+        st.subheader("LLM Processing Results")
+        processed_df = llm_processing(standardized_df)
+        processed_df = processed_df.drop(columns=['Unit'])
+        processed_df['Unit No.'] = processed_df['Unit No.'].astype(str)
 
-            processed_df = processed_df.sort_values(by=['Unit No.'])
-            processed_df = processed_df.reset_index(drop=True)
+        # List of specified columns
+        specified_order = [
+            'Unit No.', 
+            'Floor Plan Code', 
+            'Net sf', 
+            'Occupancy Status / Code', 
+            'Enter "F" for Future Lease', 
+            'Market Rent', 
+            'Lease Start Date', 
+            'Lease Expiration', 
+            'Lease Term (months)', 
+            'Move In Date', 
+            'Move Out Date'
+        ]
 
-            if processed_df is not None:
-                st.success("LLM Processing completed successfully!")
-                display_df_with_unique_cols(processed_df, "Final Processed Data:")
+        # Ensure all specified columns exist in the DataFrame
+        existing_columns = [col for col in specified_order if col in processed_df.columns]
 
-                # Save processed data to drive
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    processed_df.to_excel(writer, index=False)
-                processed_file_id = upload_to_drive(
-                    output, 
-                    f"processed_llm_{uploaded_file.name}", 
-                    DRIVE_FOLDER_ID
-                )
-                st.success(f"Processed file saved to Drive with ID: {processed_file_id}")
+        # Get remaining columns not in the specified list
+        remaining_columns = [col for col in processed_df.columns if col not in existing_columns]
 
-                # LLM Output Review
+        # Reorder the DataFrame
+        processed_df = processed_df[existing_columns + remaining_columns]
+
+        processed_df = processed_df.sort_values(by=['Unit No.'])
+        processed_df = processed_df.reset_index(drop=True)
+
+        if processed_df is not None:
+            st.success("LLM Processing completed successfully!")
+            display_df_with_unique_cols(processed_df, "Final Processed Data:")
+
+            # Save processed data to drive
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                processed_df.to_excel(writer, index=False)
+            processed_file_id = upload_to_drive(
+                output, 
+                f"processed_llm_{uploaded_file.name}", 
+                DRIVE_FOLDER_ID
+            )
+            st.success(f"Processed file saved to Drive with ID: {processed_file_id}")
+
+            # LLM Output Review
+            if not st.session_state.llm_feedback_submitted:
                 st.subheader("LLM Output Review")
                 llm_status = st.radio("Is the LLM output correct?", ["Correct", "Incorrect"], key="llm_status")
                 llm_comments = st.text_area("Comments on LLM Output", "", key="llm_comments")
 
                 if st.button("Submit LLM Output Feedback"):
-                    # Save LLM output feedback
+                    service = get_drive_service()
+                    feedback_file_id = get_feedback_file_id(service)
+                    feedback_df = load_feedback_log(service, feedback_file_id)
+
                     llm_entry = {
                         "File Name": uploaded_file.name,
                         "Origin": origin,
@@ -264,7 +276,10 @@ def process_file(uploaded_file, origin, template_type, file_type):
                     }
                     feedback_df = pd.concat([feedback_df, pd.DataFrame([llm_entry])], ignore_index=True)
                     save_feedback_to_drive(service, feedback_file_id, feedback_df)
+                    st.session_state.llm_feedback_submitted = True
                     st.success("LLM output feedback submitted.")
+            else:
+                st.success("LLM feedback has already been submitted for this file.")
 
 def standardize_data(sheet_data):
     keywords = [
