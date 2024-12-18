@@ -713,7 +713,7 @@ def llm_processing(unit_df):
 
         messages = [
             {"role": "system", "content": instructions_prompt},
-            {"role": "user", "content": "Your primary goal: Take the user-provided CSV input and return a JSON structure that accurately captures all details. If any field is ambiguous, make a reasonable assumption and include that assumption in the output. If a value doesn’t exist, omit it or set it to null.\n\n" +prompt},
+            {"role": "user", "content": "Your primary goal: Analyze the user-provided CSV input and convert it into a JSON structure that only captures the information present in the CSV file. Do not assume or infer new values, columns, or fields. Only include data that is explicitly present in the CSV file, including dynamic columns. If a value is missing or empty, set it to null or omit it entirely. Your output must strictly reflect the contents of the CSV file without introducing any external data or assumptions.\n\n" +prompt},
         ]
 
         response = client.chat.completions.create(
