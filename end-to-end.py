@@ -660,7 +660,7 @@ def llm_processing(unit_df):
         201,1065,Regina Hawkins,975,3,09/01/2023,08/31/2024,
     
         Produce:
-        {201: [{'Unit No.': 201, 'Floor Plan Code': 'E', 'Net sf': 1065, 'Occupancy Status / Code': 'Occupied', 'Market Rent': 975, 'Lease Expiration': '2024-08-31', 'Move In Date': '2023-09-01', 'Enter individual charge codes into the blue cells below (ex. rent, conc, petf, etc). For each unit, enter charge amounts in the corresponding columns Actual Rent': 975, 'Misc': 0}]}
+        {201: [{'Unit No.': 201, 'Floor Plan Code': 'E', 'Net sf': 1065, 'Occupancy Status / Code': 'Occupied', 'Market Rent': 975, 'Lease Expiration': '2024-08-31', 'Move In Date': '2023-09-01', 'Actual Rent': 975, 'Misc': 0}]}
 
         """
     # Set your OpenAI API key securely (already set in standardize_data)
