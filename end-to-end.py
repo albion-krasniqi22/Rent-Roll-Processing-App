@@ -405,7 +405,7 @@ def find_breaking_point(data):
             lease_start_exists = 'Lease Start Date' in data.columns
             if not (
                 (pd.notnull(row.get('Sqft')) and float(row.get('Sqft', 0)) < 10000) and
-                (pd.notnull(row.get('Market Rent')) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
+                (pd.notnull(row.get('Market Rent')) or pd.notnull(row.astype(str).str.contains('rent').any()) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
             ):
                 return index
 
@@ -457,7 +457,10 @@ def standardization_instructions():
     We aim to standardize headers across multiple documents to ensure consistency and ease of processing. Below are examples of how various column names might appear in different documents and the standardized format we want to achieve:
 
     Standardized Column Headers:
-    - Unit: Includes variations like "Unit", "Unit Id", "Unit Number", "Unit No.", "bldg-unit"
+    - Unit: Includes variations such as:
+        - "Unit", "Unit Id", "Unit Number", "bldg-unit", "apt #", "apt number"
+        - Columns containing the substring "Id" can be mapped to "Unit" only if no other "Unit"-related columns (e.g., "Unit", "Unit Number", etc.) are available.
+        - Avoid "Unit No.": Clearly specifies that this rule applies only to the "Unit" column and not to "Unit No.".
     - Floor Plan Code: Includes variations like "Floor Plan", "Plan Code", "Floorplan"
     - Sqft: Includes variations like "Sqft", "Unit Sqft", "Square Feet", "Sq. Ft."
     - Occupancy Status: Includes variations like "Unit Status", "Lease Status", "Occupancy", "Unit/Lease Status"
@@ -546,12 +549,12 @@ def make_column_names_unique(column_names):
     counts = {}
     for idx, col in enumerate(cols):
         if col in counts:
-            counts[col] += 1
             cols[idx] = f"{col}_{counts[col]}"
+            counts[col] += 1
         else:
             counts[col] = 0
             if duplicates[idx]:
-                cols[idx] = f"{col}_{counts[col]}"
+                cols[idx] = f"{col}"
 
     return cols.tolist()
 
