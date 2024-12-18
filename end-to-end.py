@@ -692,7 +692,7 @@ def llm_processing(unit_df):
         start_time = time.time()
 
         # Use ThreadPoolExecutor to process batches in parallel
-        with ThreadPoolExecutor(max_workers=30) as executor:
+        with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(process_single_batch, (idx, batch)): idx for idx, batch in enumerate(unit_batches)}
 
             # Display progress in Streamlit
