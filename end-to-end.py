@@ -660,7 +660,7 @@ def llm_processing(unit_df):
         201,1065,Regina Hawkins,975,3,09/01/2023,08/31/2024,
     
         Produce:
-        {201: [{'Unit No.': 201, 'Floor Plan Code': 'E', 'Net sf': 1065, 'Occupancy Status / Code': 'Occupied', 'Market Rent': 975, 'Lease Expiration': '2024-08-31', 'Move In Date': '2023-09-01', 'Actual Rent': 975, 'Misc': 0}]}
+        {201: [{'Unit No.': 201, 'Floor Plan Code': 'E', 'Net sf': 1065, 'Occupancy Status / Code': 'Occupied', 'Market Rent': 975, 'Lease Expiration': '2024-08-31', 'Move In Date': '2023-09-01', 'Rent': 975, 'Misc': 0}]}
 
         """
     # Set your OpenAI API key securely (already set in standardize_data)
@@ -692,7 +692,7 @@ def llm_processing(unit_df):
         start_time = time.time()
 
         # Use ThreadPoolExecutor to process batches in parallel
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=30) as executor:
             futures = {executor.submit(process_single_batch, (idx, batch)): idx for idx, batch in enumerate(unit_batches)}
 
             # Display progress in Streamlit
