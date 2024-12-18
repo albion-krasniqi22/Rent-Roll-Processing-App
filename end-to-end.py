@@ -722,6 +722,12 @@ def llm_processing(unit_df):
         response = client.chat.completions.create(
             model="ft:gpt-4o-mini-2024-07-18:radix:rent-roll-processor:AfEoZsW7",
             messages=messages,
+          response_format={
+            "type": "json_object"
+          },
+            temperature=0,
+            max_completion_tokens=1000,
+            top_p=0
         )
 
         return response.choices[0].message.content
