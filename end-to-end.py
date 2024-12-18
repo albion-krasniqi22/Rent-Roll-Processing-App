@@ -637,7 +637,10 @@ def llm_processing(unit_df):
        If any of these fields are missing from the CSV, do your best to infer or leave them out if no logical inference can be made.
 
     2. **Dynamic Fields (Charge Codes and Other Columns):**
-       The CSV may include additional columns beyond the core fields (e.g., "Actual Rent", "Trash", "Garage", "Misc"). Include these columns under each unit’s JSON object with their corresponding values. Do not discard any columns that contain relevant data.
+    The CSV may include additional columns beyond the core fields (e.g., "Actual Rent", "Trash", "Garage", "Misc"). Ensure that any additional columns present in the input CSV are included as key-value pairs under each unit's JSON object, preserving their corresponding values. Do not discard any columns containing relevant data.
+    
+    Important: Only include fields and values that exist in the input CSV. Do not generate or infer any values that are not explicitly present in the input.
+
 
     3. **Formatting Details:**
        - The final output should be a JSON object or an array of objects, where each object represents a single unit’s data.
