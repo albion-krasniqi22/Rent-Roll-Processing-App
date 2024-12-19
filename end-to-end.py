@@ -358,7 +358,7 @@ def standardize_data(sheet_data):
 
     st.write("**Debug Info:** Columns after GPT standardization:", list(df.columns))
 
-    if "Unit" not in df.columns:
+    if "Unit No." not in df.columns:
         st.error("No 'Unit' column found. Possibly failed to map a unit column.")
         return None
 
@@ -391,7 +391,7 @@ def standardize_data(sheet_data):
 
     display_df_with_unique_cols(unit_df, "Final Standardized Data (All Rows):")
 
-    unique_units = unit_df['Unit'].nunique()
+    unique_units = unit_df['Unit No.'].nunique()
     st.write(f"Number of unique units identified: {unique_units}")
 
     if unique_units == 0:
@@ -401,23 +401,23 @@ def standardize_data(sheet_data):
 
 def find_breaking_point(data):
     for index, row in data.iterrows():
-        if pd.notnull(row.get('Unit')):
+        if pd.notnull(row.get('Unit No.')):
             lease_start_exists = 'Lease Start Date' in data.columns
             if not (
-                (pd.notnull(row.get('Sqft')) and float(row.get('Sqft', 0)) < 10000) and
+                (pd.notnull(row.get('Net sf')) and float(row.get('Net sf', 0)) < 10000) and
                 (pd.notnull(row.get('Market Rent')) or pd.notnull(row.astype(str).str.contains('rent').any()) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
             ):
                 return index
 
             if 'Occupancy Status' in data.columns:
-                if pd.notnull(row.get('Occupancy Status')) and not isinstance(row.get('Occupancy Status'), str):
+                if pd.notnull(row.get('Occupancy Status / Code')) and not isinstance(row.get('Occupancy Status / Code'), str):
                     return index
 
             if 'Charge Codes' in data.columns:
                 if pd.notnull(row.get('Charge Codes')) and not isinstance(row.get('Charge Codes'), str):
                     return index
         else:
-            if pd.notnull(row.get('Sqft')) or pd.notnull(row.get('Market Rent')):
+            if pd.notnull(row.get('Net sf')) or pd.notnull(row.get('Market Rent')):
                 return index
             if 'Charge Codes' in data.columns:
                 if pd.notnull(row.get('Charge Codes')) and row.isnull().all():
