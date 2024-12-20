@@ -1,28 +1,17 @@
 # For OpenAI API
-import openai
 from openai import OpenAI
-from dotenv import load_dotenv
 import os
 import json
 import io
-import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil
 import glob
 import time
-
-load_dotenv()
+import random
+from collections import Counter
 
 import streamlit as st
 import pandas as pd
-import os
-import json
-
-# For OpenAI API
-import openai
-from openai import OpenAI
-from dotenv import load_dotenv
-load_dotenv()
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -403,9 +392,10 @@ def find_breaking_point(data):
     for index, row in data.iterrows():
         if pd.notnull(row.get('Unit No.')):
             lease_start_exists = 'Lease Start Date' in data.columns
+            rent_columns = [col for col in data.columns if 'rent' in col.lower()]
             if not (
-                (pd.notnull(row.get('Net sf')) and float(row.get('Net sf', 0)) < 10000) and
-                (pd.notnull(row.get('Market Rent')) or pd.notnull(row.astype(str).str.contains('rent').any()) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
+                ('Net sf' not in row or (pd.notnull(row.get('Net sf')) and float(row.get('Net sf', 0)) < 10000)) and
+                (any(pd.notnull(row[col]) and float(row[col]) < 10000 for col in rent_columns) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
             ):
                 return index
 
@@ -614,7 +604,7 @@ def llm_processing(unit_df):
 
         return batches
 
-    unit_batches = create_unit_based_batches(unit_df, unit_column='Unit')
+    unit_batches = create_unit_based_batches(unit_df, unit_column='Unit No.')
     st.write(f'Number of unit batches: {len(unit_batches)}')
 
     instructions_prompt =  """
@@ -676,13 +666,48 @@ def llm_processing(unit_df):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir)
 
+
+    def majority_voting(user_prompt, num_requests=5):
+        """
+        Implements the majority voting technique for JSON responses from an LLM.
+
+        Args:
+            request_function (callable): A function to send a request to the LLM and get a JSON response.
+            input_data (str): The input data to send to the LLM.
+            num_requests (int): Number of requests to send to the LLM (default is 5).
+
+        Returns:
+            dict: The JSON response with the majority vote, or a random one if no majority exists.
+        """
+        # Collect JSON responses
+        responses = [process_unit_batches(instructions_prompt, user_prompt) for _ in range(num_requests)]
+        
+        # Serialize responses to make them hashable
+        serialized_responses = [json.dumps(response, sort_keys=True) for response in responses]
+        
+        # Count occurrences of each response
+        response_counts = Counter(serialized_responses)
+        # Find the most common response
+        most_common_serialized, frequency = response_counts.most_common(1)[0]
+        
+        # Deserialize the response back to JSON
+        most_common_response = json.loads(most_common_serialized)
+        
+        # Check if there is a majority
+        if frequency > 1:
+            return most_common_response
+        else:
+            # Return a random response if there's no majority
+            random_serialized = random.choice(serialized_responses)
+            return json.loads(random_serialized)
+
     # Function to process a single batch
     def process_single_batch(idx_batch):
         idx, batch = idx_batch
         # Convert the input DataFrame to CSV format (string)
         user_prompt = batch.to_csv(index=False)
         # Get the model's output
-        model_output = process_unit_batches(instructions_prompt, user_prompt)
+        model_output = majority_voting(user_prompt)
         # Save the raw model output to a file
         output_file = os.path.join(output_dir, f'model_output_{idx}.json')
         with open(output_file, 'w', encoding='utf-8') as f:
