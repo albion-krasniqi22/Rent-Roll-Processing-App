@@ -209,7 +209,7 @@ def process_file(uploaded_file, origin, template_type, file_type):
         # Step 2: LLM Processing
         st.subheader("LLM Processing Results")
         processed_df = llm_processing(standardized_df)
-        processed_df = processed_df.drop(columns=['Unit'])
+        processed_df = processed_df.drop(columns=['Unit No.'])
         processed_df['Unit No.'] = processed_df['Unit No.'].astype(str)
 
         # List of specified columns
@@ -988,11 +988,12 @@ def llm_processing(unit_df):
     def flatten_data(unit, details):
         if isinstance(details, list):
             for item in details:
-                rows.append({'Unit': unit, **item})
+                rows.append({
+                    'Unit No.': unit, **item})
         elif isinstance(details, dict):
-            rows.append({'Unit': unit, **details})
+            rows.append({'Unit No.': unit, **details})
         else:
-            rows.append({'Unit': unit, 'Details': details})
+            rows.append({'Unit No.': unit, 'Details': details})
 
     for unit, details in combined_data.items():
         flatten_data(unit, details)
