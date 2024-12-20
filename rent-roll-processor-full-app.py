@@ -970,15 +970,29 @@ def llm_processing(unit_df):
         for output in parsed_outputs:
             for unit, records in output.items():
                 if unit not in combined_data:
-                    combined_data[unit] = records
+                    # Initialize as a list if records is a list, otherwise create a new list
+                    combined_data[unit] = [records] if isinstance(records, dict) else records
                 else:
                     existing_records = combined_data[unit]
+                    # Ensure existing_records is a list
+                    if not isinstance(existing_records, list):
+                        existing_records = [existing_records]
+                        combined_data[unit] = existing_records
+
+                    # Handle incoming records
                     if isinstance(records, list):
+                        # Convert existing records to strings for comparison
+                        existing_record_strings = [json.dumps(r, sort_keys=True) for r in existing_records]
                         for record in records:
-                            if record not in existing_records:
+                            record_string = json.dumps(record, sort_keys=True)
+                            if record_string not in existing_record_strings:
                                 existing_records.append(record)
+                                existing_record_strings.append(record_string)
                     else:
-                        if records not in existing_records:
+                        # Handle single record case
+                        record_string = json.dumps(records, sort_keys=True)
+                        existing_record_strings = [json.dumps(r, sort_keys=True) for r in existing_records]
+                        if record_string not in existing_record_strings:
                             existing_records.append(records)
 
         return combined_data
