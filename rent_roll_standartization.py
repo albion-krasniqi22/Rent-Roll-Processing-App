@@ -1,44 +1,32 @@
-# For OpenAI API
-from openai import OpenAI
+import streamlit as st
+import pandas as pd
 import os
 import json
 import io
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import shutil
-import glob
-import time
-import random
-from collections import Counter
+import warnings
+warnings.filterwarnings("ignore")
 
-import streamlit as st
-import pandas as pd
+# For OpenAI API
+import openai
+from openai import OpenAI
+from dotenv import load_dotenv
+load_dotenv()
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
 
-DRIVE_FOLDER_ID = "1KZtAaDjilfUk-trWDZX1ePvErt24iEGa"
+DRIVE_FOLDER_ID = "1A5TaBdAnA9JQZ73H6ckFgPEytQ_nSPMD"
 FEEDBACK_FILENAME = "feedback_log.csv"
 
 def main():
     st.title("Rent Roll Processing App - Step 1: Standardization Only")
     
-    # Initialize all session state variables
     if "original_drive_id" not in st.session_state:
         st.session_state.original_drive_id = None
     if "standardized_drive_id" not in st.session_state:
         st.session_state.standardized_drive_id = None
-    if "standardization_correct" not in st.session_state:
-        st.session_state.standardization_correct = False
-    if "llm_feedback_submitted" not in st.session_state:
-        st.session_state.llm_feedback_submitted = False
-    if "original_file_saved" not in st.session_state:
-        st.session_state.original_file_saved = False
-    if "standardized_file_saved" not in st.session_state:
-        st.session_state.standardized_file_saved = False
-    if "processed_llm_file_saved" not in st.session_state:
-        st.session_state.processed_llm_file_saved = False
 
     # Sidebar for file metadata selection
     st.sidebar.header("File Metadata")
@@ -133,155 +121,69 @@ def upload_to_drive(file_content, filename, folder_id, mime_type='application/vn
 def process_file(uploaded_file, origin, template_type, file_type):
     st.write("Processing file:", uploaded_file.name)
 
+    # Load the original file from the uploaded buffer directly into pandas
+    # No local saving
     try:
         sheet_data = pd.read_excel(uploaded_file, sheet_name=0, header=None)
-        
-        # Save original file to drive only if not already saved
-        if not st.session_state.original_file_saved:
-            uploaded_file.seek(0)
-            original_file_id = upload_to_drive(
-                uploaded_file, 
-                f"original_{uploaded_file.name}", 
-                DRIVE_FOLDER_ID
-            )
-            st.session_state.original_drive_id = original_file_id
-            st.session_state.original_file_saved = True
-            st.success(f"Original file saved to Drive with ID: {original_file_id}")
-        
     except Exception as e:
         st.error(f"Failed to read Excel file: {e}")
         return
 
-    # Step 1: Standardization
+    display_df_with_unique_cols(sheet_data.head(), "Original Data:")
+
     standardized_df = standardize_data(sheet_data)
     if standardized_df is None:
         return
 
-    # Save standardized version to drive only if not already saved
-    if not st.session_state.standardized_file_saved:
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            standardized_df.to_excel(writer, index=False)
-        standardized_file_id = upload_to_drive(
-            output, 
-            f"standardized_{uploaded_file.name}", 
-            DRIVE_FOLDER_ID
-        )
-        st.session_state.standardized_drive_id = standardized_file_id
-        st.session_state.standardized_file_saved = True
-        st.success(f"Standardized file saved to Drive with ID: {standardized_file_id}")
+    # Convert original file (uploaded_file) to a BytesIO for upload
+    uploaded_file.seek(0)
+    original_file_content = io.BytesIO(uploaded_file.read())
+    original_file_content.seek(0)
 
-    # Single Standardization Review
-    if not st.session_state.standardization_correct:
-        st.subheader("Standardization Review")
-        standardization_status = st.radio("Is the standardization correct?", ["Correct", "Incorrect"], key="std_status")
-        standardization_comments = st.text_area("Comments on Standardization", "", key="std_comments")
+    # Convert standardized_df to a BytesIO (Excel in memory)
+    standardized_buffer = io.BytesIO()
+    standardized_df.to_excel(standardized_buffer, index=False, engine='openpyxl')
+    standardized_buffer.seek(0)
 
-        if standardization_status == "Correct":
-            button_label = "Submit Review and Continue to LLM Processing"
-        else:
-            button_label = "Submit Feedback"
+    # Upload both original and standardized files to Google Drive only if not done before
+    if st.session_state.original_drive_id is None and st.session_state.standardized_drive_id is None:
+        original_drive_id = upload_to_drive(original_file_content, uploaded_file.name, DRIVE_FOLDER_ID)
+        standardized_drive_id = upload_to_drive(standardized_buffer, f'standardized_{uploaded_file.name}', DRIVE_FOLDER_ID)
+        st.success(f"Original file uploaded to Google Drive. File ID: {original_drive_id}")
+        st.success(f"Standardized data uploaded to Google Drive. File ID: {standardized_drive_id}")
 
-        if st.button(button_label):
-            service = get_drive_service()
-            feedback_file_id = get_feedback_file_id(service)
-            feedback_df = load_feedback_log(service, feedback_file_id)
+        st.session_state.original_drive_id = original_drive_id
+        st.session_state.standardized_drive_id = standardized_drive_id
+    else:
+        st.write("Files already uploaded to Google Drive:")
+        st.write(f"Original Drive ID: {st.session_state.original_drive_id}")
+        st.write(f"Standardized Drive ID: {st.session_state.standardized_drive_id}")
 
-            # Save standardization feedback
-            standardization_entry = {
-                "File Name": uploaded_file.name,
-                "Origin": origin,
-                "Template Type": template_type,
-                "File Type": file_type,
-                "Stage": "Standardization",
-                "Status": standardization_status,
-                "Comments": standardization_comments
-            }
-            feedback_df = pd.concat([feedback_df, pd.DataFrame([standardization_entry])], ignore_index=True)
-            save_feedback_to_drive(service, feedback_file_id, feedback_df)
-            st.success("Standardization feedback submitted.")
+    # Standardization Review
+    st.subheader("Standardization Review")
+    standardization_status = st.radio("Is the standardization correct?", ["Correct", "Incorrect"], key="std_status")
+    standardization_comments = st.text_area("Comments on Standardization", "", key="std_comments")
 
-            if standardization_status == "Correct":
-                st.session_state.standardization_correct = True
+    if st.button("Submit Standardization Feedback"):
+        service = get_drive_service()
+        feedback_file_id = get_feedback_file_id(service)
+        feedback_df = load_feedback_log(service, feedback_file_id)
 
-    # Only proceed to LLM processing if standardization is marked as correct
-    if st.session_state.standardization_correct:
-        # Step 2: LLM Processing
-        st.subheader("LLM Processing Results")
-        processed_df = llm_processing(standardized_df)
-        processed_df = processed_df.drop(columns=['Unit No.'])
-        processed_df['Unit No.'] = processed_df['Unit No.'].astype(str)
+        new_entry = {
+            "File Name": uploaded_file.name,
+            "Origin": origin,
+            "Template Type": template_type,
+            "File Type": file_type,
+            "Stage": "Standardization",
+            "Status": standardization_status,
+            "Comments": standardization_comments
+        }
+        # Use pd.concat since append is deprecated
+        feedback_df = pd.concat([feedback_df, pd.DataFrame([new_entry])], ignore_index=True)
 
-        # List of specified columns
-        specified_order = [
-            'Unit No.', 
-            'Floor Plan Code', 
-            'Net sf', 
-            'Occupancy Status / Code', 
-            'Enter "F" for Future Lease', 
-            'Market Rent', 
-            'Lease Start Date', 
-            'Lease Expiration', 
-            'Lease Term (months)', 
-            'Move In Date', 
-            'Move Out Date'
-        ]
-
-        # Ensure all specified columns exist in the DataFrame
-        existing_columns = [col for col in specified_order if col in processed_df.columns]
-
-        # Get remaining columns not in the specified list
-        remaining_columns = [col for col in processed_df.columns if col not in existing_columns]
-
-        # Reorder the DataFrame
-        processed_df = processed_df[existing_columns + remaining_columns]
-
-        processed_df = processed_df.sort_values(by=['Unit No.'])
-        processed_df = processed_df.reset_index(drop=True)
-
-        if processed_df is not None:
-            st.success("LLM Processing completed successfully!")
-            display_df_with_unique_cols(processed_df, "Final Processed Data:")
-
-            # Save processed data to drive only if not already saved
-            if not st.session_state.processed_llm_file_saved:
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    processed_df.to_excel(writer, index=False)
-                processed_file_id = upload_to_drive(
-                    output, 
-                    f"processed_llm_{uploaded_file.name}", 
-                    DRIVE_FOLDER_ID
-                )
-                st.session_state.processed_llm_file_saved = True
-                st.success(f"Processed file saved to Drive with ID: {processed_file_id}")
-
-            # LLM Output Review
-            if not st.session_state.llm_feedback_submitted:
-                st.subheader("LLM Output Review")
-                llm_status = st.radio("Is the LLM output correct?", ["Correct", "Incorrect"], key="llm_status")
-                llm_comments = st.text_area("Comments on LLM Output", "", key="llm_comments")
-
-                if st.button("Submit LLM Output Feedback"):
-                    service = get_drive_service()
-                    feedback_file_id = get_feedback_file_id(service)
-                    feedback_df = load_feedback_log(service, feedback_file_id)
-
-                    llm_entry = {
-                        "File Name": uploaded_file.name,
-                        "Origin": origin,
-                        "Template Type": template_type,
-                        "File Type": file_type,
-                        "Stage": "LLM Processing",
-                        "Status": llm_status,
-                        "Comments": llm_comments
-                    }
-                    feedback_df = pd.concat([feedback_df, pd.DataFrame([llm_entry])], ignore_index=True)
-                    save_feedback_to_drive(service, feedback_file_id, feedback_df)
-                    st.session_state.llm_feedback_submitted = True
-                    st.success("LLM output feedback submitted.")
-            else:
-                st.success("LLM feedback has already been submitted for this file.")
+        save_feedback_to_drive(service, feedback_file_id, feedback_df)
+        st.success("Standardization feedback submitted.")
+        st.success("Feedback log updated on Google Drive.")
 
 def standardize_data(sheet_data):
     keywords = [
@@ -347,7 +249,7 @@ def standardize_data(sheet_data):
 
     st.write("**Debug Info:** Columns after GPT standardization:", list(df.columns))
 
-    if "Unit No." not in df.columns:
+    if "Unit" not in df.columns:
         st.error("No 'Unit' column found. Possibly failed to map a unit column.")
         return None
 
@@ -380,7 +282,7 @@ def standardize_data(sheet_data):
 
     display_df_with_unique_cols(unit_df, "Final Standardized Data (All Rows):")
 
-    unique_units = unit_df['Unit No.'].nunique()
+    unique_units = unit_df['Unit'].nunique()
     st.write(f"Number of unique units identified: {unique_units}")
 
     if unique_units == 0:
@@ -390,24 +292,23 @@ def standardize_data(sheet_data):
 
 def find_breaking_point(data):
     for index, row in data.iterrows():
-        if pd.notnull(row.get('Unit No.')):
+        if pd.notnull(row.get('Unit')):
             lease_start_exists = 'Lease Start Date' in data.columns
-            rent_columns = [col for col in data.columns if 'rent' in col.lower()]
             if not (
-                ('Net sf' not in row or (pd.notnull(row.get('Net sf')) and float(row.get('Net sf', 0)) < 10000)) and
-                (any(pd.notnull(row[col]) and float(row[col]) < 10000 for col in rent_columns) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
+                (pd.notnull(row.get('Sqft')) and float(row.get('Sqft', 0)) < 10000) and
+                (pd.notnull(row.get('Market Rent')) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
             ):
                 return index
 
             if 'Occupancy Status' in data.columns:
-                if pd.notnull(row.get('Occupancy Status / Code')) and not isinstance(row.get('Occupancy Status / Code'), str):
+                if pd.notnull(row.get('Occupancy Status')) and not isinstance(row.get('Occupancy Status'), str):
                     return index
 
             if 'Charge Codes' in data.columns:
                 if pd.notnull(row.get('Charge Codes')) and not isinstance(row.get('Charge Codes'), str):
                     return index
         else:
-            if pd.notnull(row.get('Net sf')) or pd.notnull(row.get('Market Rent')):
+            if pd.notnull(row.get('Sqft')) or pd.notnull(row.get('Market Rent')):
                 return index
             if 'Charge Codes' in data.columns:
                 if pd.notnull(row.get('Charge Codes')) and row.isnull().all():
@@ -447,20 +348,17 @@ def standardization_instructions():
     We aim to standardize headers across multiple documents to ensure consistency and ease of processing. Below are examples of how various column names might appear in different documents and the standardized format we want to achieve:
 
     Standardized Column Headers:
-    - Unit No.: Includes variations such as:
-        - "Unit", "Unit Id", "Unit Number", "bldg-unit", "apt #", "apt number"
-        - Columns containing the substring "Id" can be mapped to "Unit" only if no other "Unit"-related columns (e.g., "Unit", "Unit Number", etc.) are available.
-        - Avoid "Unit No.": Clearly specifies that this rule applies only to the "Unit" column and not to "Unit No.".
-    - Floor Plan Code: Includes variations like "Floor Plan", "Plan Code", "Floorplan", "Unit Type"
-    - Net sf: Includes variations like "Sqft", "Unit Sqft", "Square Feet", "Sq. Ft."
-    -  Occupancy Status / Code: Includes variations like "Unit Status", "Lease Status", "Occupancy", "Unit/Lease Status"
+    - Unit: Includes variations like "Unit", "Unit Id", "Unit Number", "Unit No.", "bldg-unit"
+    - Floor Plan Code: Includes variations like "Floor Plan", "Plan Code", "Floorplan"
+    - Sqft: Includes variations like "Sqft", "Unit Sqft", "Square Feet", "Sq. Ft."
+    - Occupancy Status: Includes variations like "Unit Status", "Lease Status", "Occupancy", "Unit/Lease Status"
     - Market Rent: Includes variations like "Market Rent", "Market + Addl.", 'Gross Market Rent'
     - Lease Start Date: Includes variations like "Lease Start", "Lease Start Date", "Start of Lease"
     - Lease Expiration: Includes variations like "Lease End", "Lease End Date", "Lease Expiration Date"
     - Move In Date: Includes variations like "Move-In", "Move In Date", "Move In"
-    - Move Out Date: Includes variations like "Move-Out", "Move Out Date", "Move Out"
+    - Move-Out Date: Includes variations like "Move-Out", "Move Out Date", "Move Out"
     - Charge Codes: Includes variations like "Trans Code", "Charge Codes", "Description"
-    - Charges or credits: these are charges in dollar amount (which is different from charge code)
+    - Charges or credits: this is Charges as in dollar amount (which is differeent from charge code)
 
     Examples of Standardized Headers:
     Unit No., Floor Plan Code, Sqft, Occupancy Status, Market Rent, Lease Start Date, Lease Expiration, Move In Date, Move-Out Date, Charge Codes
@@ -486,7 +384,7 @@ def standardization_instructions():
     ['unit', 'floorplan', 'sqft', 'unit/lease status']
 
     Example Output:
-    {"standardized_headers": ["Unit No.", "Floor Plan Code", "Net sf", "Occupancy Status / Code"]}
+    {"standardized_headers": ["Unit", "Floor Plan Code", "Sqft", "Occupancy Status"]}
     """
     return instructions_prompt
 
@@ -539,12 +437,12 @@ def make_column_names_unique(column_names):
     counts = {}
     for idx, col in enumerate(cols):
         if col in counts:
-            cols[idx] = f"{col}_{counts[col]}"
             counts[col] += 1
+            cols[idx] = f"{col}_{counts[col]}"
         else:
             counts[col] = 0
             if duplicates[idx]:
-                cols[idx] = f"{col}"
+                cols[idx] = f"{col}_{counts[col]}"
 
     return cols.tolist()
 
@@ -566,465 +464,5 @@ def display_df_with_unique_cols(df, message=""):
     display_df.columns = new_cols
     st.dataframe(display_df)
 
-
-
-def llm_processing(unit_df):
-    # Next, we move onto chunking and LLM processing
-    st.write("Processing LLM Output...")
-
-
-    def create_unit_based_batches(data, unit_column, batch_units=1, overlap_units=0):
-        """
-        Creates unit-based batches from the given DataFrame and converts each batch into a nested JSON format.
-
-        Parameters:
-        - data: pandas DataFrame containing the rent roll data.
-        - unit_column: Column name that identifies units.
-        - batch_units: Number of units per batch.
-        - overlap_units: Number of units to overlap between batches.
-
-        Returns:
-        - List of JSON objects representing the nested structure for each batch.
-        """
-        batches = []
-
-        # Forward-fill NaN rows to associate them with units
-        data['unit_group'] = data[unit_column].fillna(method='ffill')
-
-        # Identify unique units
-        unique_units = data['unit_group'].unique()
-
-        # Format date columns
-        date_cols = ['Lease Start Date', 'Lease Expiration', 'Move In Date', 'Move Out Date']
-        for col in date_cols:
-            if col in data.columns:
-                data[col] = pd.to_datetime(data[col], errors='coerce').dt.strftime('%Y-%m-%d')
-
-        # Create batches
-        start = 0
-        while start < len(unique_units):
-            end = start + batch_units
-            selected_units = unique_units[start:end]
-
-            # Filter the DataFrame for rows corresponding to the selected units
-            batch = data[data['unit_group'].isin(selected_units)]
-            batches.append(batch.drop(columns=['unit_group']))
-
-            # Move to the next batch with overlap
-            start += (batch_units - overlap_units)
-
-        # Convert batches to JSON format with nested structure
-        json_batches = []
-        for batch in batches:
-            # Convert to JSON records while preserving data as it is
-            records = json.loads(batch.to_json(orient="records", date_format="iso"))
-
-            # Filter out null values from each record
-            filtered_records = []
-            for record in records:
-                cleaned_record = {k: v for k, v in record.items() if pd.notnull(v)}
-                if cleaned_record:
-                    filtered_records.append(cleaned_record)
-
-            # Create nested structure dynamically
-            nested_output = {}
-            unit_key = None
-
-            for record in filtered_records:
-                # If the record has a "Unit" key, treat it as the main unit record
-                if "Unit" in record and record["Unit"]:
-                    unit_key = record["Unit"]
-                    nested_output[unit_key] = record
-                    nested_output[unit_key]["Nested Values"] = []
-                else:
-                    # If no "Unit" key, treat the record as a nested entry for the current unit
-                    if unit_key in nested_output:
-                        nested_output[unit_key]["Nested Values"].append(record)
-
-            json_batches.append(nested_output)
-
-        return json_batches
-
-    
-    unit_batches = create_unit_based_batches(unit_df, unit_column='Unit No.')
-    st.write(f'Number of unit batches: {len(unit_batches)}')
-
-    instructions_prompt =  """
-    You are an AI assistant specialized in cleaning and structuring JSON rental unit data. Your role is to read the JSON input provided by the user, which may not be fully structured, and produce a cleaned JSON output that captures all relevant data exactly as provided in the input. You are strictly prohibited from adding, inferring, or guessing any values or fields not explicitly present in the input JSON.
-
-       Always extract and map these columns if present:
-       - Unit No.
-       - Floor Plan Code
-       - Net sf
-       - Occupancy Status / Code
-       - Enter "F" for Future Lease
-       - Market Rent
-       - Lease Start Date
-       - Lease Expiration
-       - Lease Term (months)
-       - Move In Date
-       - Move Out Date
-       - on this there might be charge codes and other value
-
-        1. Extract Exact Fields and Values:
-        Only use fields (keys) and data explicitly present in the JSON input.
-        Do not create new fields or guess unknown fields or values.
-        If any field in the JSON is missing or its value is empty (null, "", or similar), preserve the field but set its value to null.
-        2. Handling Specific Fields:
-        Floor Plan Code: If not explicitly available in the input JSON, include it in the output and set its value to null.
-        Occupancy Status / Code: If not explicitly available in the input JSON, include it in the output and set its value to null.
-        Other Fields: If a field is completely absent from the input JSON, omit it from the output. If the field exists but contains empty data, set its value to null.
-        3. JSON Structure:
-        The final output should be an array of objects, where each object corresponds to a single unit from the input JSON.
-        Each key in the JSON object should match exactly a key from the input JSON.
-        Convert numeric fields (e.g., Net sf, Market Rent) to numbers if possible.
-        Identify date-like fields (e.g., Move In Date, Lease Expiration) convert date fields to the format "YYYY-MM-DD" if they are valid dates. If not, set the value to null.
-        Do not include additional fields or rename existing fields.
-
-
-        No Assumptions or Inferences:
-        Do not assume or infer values for missing fields or data.
-        If Floor Plan Code or Occupancy Status is missing, explicitly include them in the output with a value of null.
-        For numeric fields, if the value is missing or empty, do not assume it to be zero; leave it as null.
-
-
-        6. Examples:
-        Input 1:
-        {
-          "input": {
-            "Unit No.": 3041,
-            "Floor Plan Code": "26301B1",
-            "Net sf": 1076,
-            "Resident": "t0648599",
-            "Name": "Umasreemukha Siddhanthi",
-            "Market Rent": 2293.1,
-            "Market Rent/Sqft": 2.131134,
-            "Actual Rent": 2236.0,
-            "Actual Rent/Sqft": 2.078067,
-            "Resident Deposit": 0.0,
-            "Other Deposits": 0,
-            "Move In Date": "2024-08-25",
-            "Lease Start Date": "2024-08-25",
-            "Lease Expiration": "2025-10-24",
-            "Move Out Date": null
-          }
-        }
-
-        Output 1:
-
-        {
-          "output": {
-            "3041": [
-              {
-                "Unit No.": 3041,
-                "Floor Plan Code": "26301B1",
-                "Net sf": 1076,
-                "Occupancy Status / Code": "Occupied",
-                "Market Rent": 2293.1,
-                "Lease Start Date": "2024-08-25",
-                "Lease Expiration": "2025-10-24",
-                "Move In Date": "2024-08-25",
-                "Actual Rent": 2236.0
-              }
-            ]
-          }
-        }
-        
-        
-        
-    Input 2:
-        {
-          "1-1101": {
-            "Unit No.": "1-1101",
-            "Floor Plan Code": "W15B1",
-            "Net sf": 845.0,
-            "Resident": "t0533113",
-            "Name": "Miguel Garcia Vasquez",
-            "Market Rent": 1015.0,
-            "Charge Codes": "rent",
-            "Amount": 1025.0,
-            "Resident Deposit": 0.0,
-            "Other Deposit": 0.0,
-            "Move In Date": "2019-07-15",
-            "Lease Expiration": "2024-09-14",
-            "Balance": 0.0,
-            "Nested Values": [
-              {
-                "Charge Codes": "resins",
-                "Amount": 10.0
-              },
-              {
-                "Charge Codes": "ubfee",
-                "Amount": 0.2
-              },
-              {
-                "Charge Codes": "ubfee",
-                "Amount": 1.99
-              },
-              {
-                "Charge Codes": "ubfee",
-                "Amount": 0.21
-              },
-              {
-                "Charge Codes": "vtrash",
-                "Amount": 25.0
-              },
-              {
-                "Charge Codes": "pest",
-                "Amount": 5.0
-              },
-              {
-                "Charge Codes": "Total",
-                "Amount": 1067.4
-              }
-            ]
-          }
-        }
-        
-    Output 2:
-    {'1-1101': [{'Unit No.': '1-1101',
-   'Floor Plan Code': 'W15B1',
-   'Net sf': 845,
-   'Occupancy Status / Code': 'Occupied',
-   'Market Rent': 1015,
-   'Lease Expiration': '2024-09-14',
-   'Move In Date': '2019-07-15',
-   'pest': 5,
-   'rent': 1025,
-   'resins': 10,
-   'ubfee': 2.4,
-   'vtrash': 25}]}
-        """
-
-    # Directory to save individual outputs
-    output_dir = 'model_outputs_parallel'
-
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir)
-    os.makedirs(output_dir)
-
-
-    def majority_voting(user_prompt, num_requests=5):
-        """
-        Implements the majority voting technique for JSON responses from an LLM.
-
-        Args:
-            request_function (callable): A function to send a request to the LLM and get a JSON response.
-            input_data (str): The input data to send to the LLM.
-            num_requests (int): Number of requests to send to the LLM (default is 5).
-
-        Returns:
-            dict: The JSON response with the majority vote, or a random one if no majority exists.
-        """
-        # Collect JSON responses
-        responses = [process_unit_batches(instructions_prompt, user_prompt) for _ in range(num_requests)]
-        
-        # Serialize responses to make them hashable
-        serialized_responses = [json.dumps(response, sort_keys=True) for response in responses]
-        
-        # Count occurrences of each response
-        response_counts = Counter(serialized_responses)
-        # Find the most common response
-        most_common_serialized, frequency = response_counts.most_common(1)[0]
-        
-        # Deserialize the response back to JSON
-        most_common_response = json.loads(most_common_serialized)
-        
-        # Check if there is a majority
-        if frequency > 1:
-            return most_common_response
-        else:
-            # Return a random response if there's no majority
-            random_serialized = random.choice(serialized_responses)
-            return json.loads(random_serialized)
-
-    # Function to process a single batch
-    def process_single_batch(idx_batch):
-        idx, batch = idx_batch
-        # Convert the input DataFrame to CSV format (string)
-        user_prompt = batch
-        # Get the model's output
-        model_output = majority_voting(user_prompt)
-        # Save the raw model output to a file
-        output_file = os.path.join(output_dir, f'model_output_{idx}.json')
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(model_output)
-        return idx  # Return idx to identify which batch was processed
-
-    # Function to process unit batches and save outputs in parallel
-    def process_and_save_outputs_parallel(unit_batches, instructions_prompt):
-        total_batches = len(unit_batches)
-        start_time = time.time()
-
-        # Use ThreadPoolExecutor to process batches in parallel
-        with ThreadPoolExecutor(max_workers=50) as executor:
-            futures = {executor.submit(process_single_batch, (idx, batch)): idx for idx, batch in enumerate(unit_batches)}
-
-            # Display progress in Streamlit
-            progress_bar = st.progress(0)
-            for i, future in enumerate(as_completed(futures)):
-                idx = futures[future]
-                try:
-                    result_idx = future.result()
-                    # Update progress
-                    progress = (i + 1) / total_batches
-                    progress_bar.progress(progress)
-                except Exception as e:
-                    st.error(f'An error occurred while processing batch {idx}: {e}')
-
-        elapsed_time = time.time() - start_time
-        st.write(f'All batches processed in {elapsed_time:.2f} seconds.')
-
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
-    def process_unit_batches(instructions_prompt, prompt):
-
-        messages = [
-            {"role": "system", "content": instructions_prompt},
-            {"role": "user", "content": """
-
-                        Your primary goal is to process the provided JSON input, which might not be fully structured, and convert it into a clean, structured JSON output. Follow these rules strictly:
-
-                        Input Specifications:
-                        You will receive a JSON input containing rows of unit data, possibly with missing or improperly formatted fields.
-                        Your task is to clean, reformat, and structure the data as per the requirements below.
-
-                        Processing Rules:
-                        Field Inclusion:
-                        Only include fields explicitly present in the input JSON.
-                        Do not infer or create new fields unless explicitly mentioned in the rules.
-
-                        Handling Missing/Empty Fields:
-                        For missing fields:
-                        Omit them entirely from the JSON output.
-                        For fields with null, "", or invalid data:
-                        Keep them as null.
-
-                        Formatting Requirements:
-                        Dates:
-                        Convert any valid date fields to the format YYYY-MM-DD.
-                        Numeric Fields:
-                        Ensure numeric fields (e.g., Sqft, Market Rent) are represented as numbers.
-                        Text Fields:
-                        Maintain original text values as-is.
-                        For invalid values, leave them as null.
-                        Special Fields:
-                        If the fields Floor Plan Code or Occupancy Status are missing, include them with a value of null.
-
-                        Dynamic/Charge code Fields:
-                        Retain any additional fields (dynamic columns) present in the input JSON without modification.
-
-                        Output Requirements:
-                        Structure the output as an array of objects, where each object represents a single unit’s data.
-                        Make sure that output has data only from input JSON
-                        Maintain the original field names from the input JSON
-                        Ensure data types are consistent and align with the input values:
-                        Numbers for numeric fields
-                        Strings for text fields
-                        Null for missing or empty values
-                        Do not introduce assumptions or external data
-
-                        Here’s the JSON input:
-
-                     """ + prompt},
-                     ]
-
-        response = client.chat.completions.create(
-            model="ft:gpt-4o-mini-2024-07-18:radix:rent-roll-processor-v01:Age52GN8",
-            messages=messages,
-          response_format={
-            "type": "json_object"
-          },
-            temperature=0,
-            max_completion_tokens=1000,
-            top_p=0
-        )
-
-        return response.choices[0].message.content
-    # Process unit batches in parallel
-    with st.spinner('Processing unit batches in parallel...'):
-        process_and_save_outputs_parallel(unit_batches, instructions_prompt)
-
-    # Combine saved outputs
-    def combine_saved_outputs(output_dir='model_outputs_parallel'):
-        # Initialize a list to hold parsed outputs
-        parsed_outputs = []
-
-        # Get all output files
-        output_files = sorted(glob.glob(os.path.join(output_dir, 'model_output_*.json')))
-
-        for output_file in output_files:
-            with open(output_file, 'r', encoding='utf-8') as f:
-                model_output = f.read()
-                # Parse the model's output as JSON
-                try:
-                    output_json = json.loads(model_output)
-                    parsed_outputs.append(output_json)
-                except json.JSONDecodeError as e:
-                    st.error(f"Error decoding JSON from {output_file}: {e}")
-
-        # Initialize an empty dictionary to hold the combined data
-        combined_data = {}
-
-        for output in parsed_outputs:
-            for unit, records in output.items():
-                if unit not in combined_data:
-                    combined_data[unit] = records
-                else:
-                    existing_records = combined_data[unit]
-                    if isinstance(records, list):
-                        for record in records:
-                            if record not in existing_records:
-                                existing_records.append(record)
-                    else:
-                        if records not in existing_records:
-                            existing_records.append(records)
-
-        return combined_data
-
-    combined_data = combine_saved_outputs()
-    # Convert combined data to DataFrame
-    rows = []
-    def flatten_data(unit, details):
-        if isinstance(details, list):
-            for item in details:
-                rows.append({
-                    'Unit No.': unit, **item})
-        elif isinstance(details, dict):
-            rows.append({'Unit No.': unit, **details})
-        else:
-            rows.append({'Unit No.': unit, 'Details': details})
-
-    for unit, details in combined_data.items():
-        flatten_data(unit, details)
-
-    if rows:
-        llm_df = pd.DataFrame(rows)
-        display_df_with_unique_cols(llm_df.head(), "LLM Output Data:")
-        return llm_df
-    else:
-        st.error("No data was extracted by the LLM.")
-        return None
-
-def save_feedback(file_name, origin, template_type, file_type, status, comments, stage):
-    feedback = {
-        "File Name": file_name,
-        "Origin": origin,
-        "Template Type": template_type,
-        "File Type": file_type,
-        "Stage": stage,
-        "Status": status,
-        "Comments": comments
-    }
-
-    # Append feedback to a CSV file
-    feedback_file = "feedback_log.csv"
-    feedback_df = pd.DataFrame([feedback])
-
-    if os.path.exists(feedback_file):
-        feedback_df.to_csv(feedback_file, mode='a', header=False, index=False)
-    else:
-        feedback_df.to_csv(feedback_file, index=False)
-        
 if __name__ == "__main__":
     main()
