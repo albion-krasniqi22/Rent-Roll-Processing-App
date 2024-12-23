@@ -24,7 +24,7 @@ You can run either app based on your preference. The steps are the same:
 Choose an App:
 
 - To run the end-to-end app, execute: streamlit run end-to-end.py
-- To run the rent roll processing app, execute: streamlit run rentroll_processing_app.py
+- To run the rent roll processing app, execute: streamlit run rent-roll-processor-full-app.py
 
 
 **Interact with the App:**
