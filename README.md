@@ -3,6 +3,8 @@
 
 Streamlit Apps: end-to-end.py and rent-roll-processor-full-app.py
 This repository contains two Streamlit applications designed to achieve the same purpose—processing data—using slightly different methodologies (one was trained on csv and the other json inputs). You can choose to use either app.
+- end-to-end.py (csv)
+- rent-roll-processor-full-app.py (json)
 
 Before running either app, ensure the following:
 
