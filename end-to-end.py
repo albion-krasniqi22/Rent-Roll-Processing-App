@@ -607,55 +607,73 @@ def llm_processing(unit_df):
     unit_batches = create_unit_based_batches(unit_df, unit_column='Unit No.')
     st.write(f'Number of unit batches: {len(unit_batches)}')
 
-    instructions_prompt =  """
-    You are an AI assistant specialized in converting CSV rental unit data into a structured JSON format. Your role is to read the CSV input provided by the user and produce a JSON output that accurately captures all relevant unit information.
+    instructions_prompt = '''
+        You are an AI assistant specialized in converting CSV rental unit data into a structured JSON format. Your role is to read the CSV input provided by the user, which may not be fully structured, and produce a cleaned JSON output that captures all relevant data exactly as provided in the input CSV. You are strictly prohibited from adding, inferring, or guessing any values or fields not explicitly present in the input CSV.
 
-    **Instructions:**
+        Always extract and map these columns if present:
 
-    1. **Required Core Fields:**
-       Always extract and map these columns if present:
-       - Unit No.
-       - Floor Plan Code
-       - Net sf
-       - Occupancy Status / Code
-       - Enter "F" for Future Lease
-       - Market Rent
-       - Lease Start Date
-       - Lease Expiration
-       - Lease Term (months)
-       - Move In Date
-       - Move Out Date
-       - Leave Column Blank (if present, handle gracefully by ignoring or leaving it out if empty)
+        - Unit No.
+        - Floor Plan Code
+        - Net sf
+        - Occupancy Status / Code
+        - Enter "F" for Future Lease
+        - Market Rent
+        - Lease Start Date
+        - Lease Expiration
+        - Lease Term (months)
+        - Move In Date
+        - Move Out Date
+        - On this there might be charge codes and other values
 
-       If any of these fields are missing from the CSV, do your best to infer or leave them out if no logical inference can be made.
-
-    2. **Dynamic Fields (Charge Codes and Other Columns):**
-    The CSV may include additional columns beyond the core fields (e.g., "Actual Rent", "Trash", "Garage", "Misc"). Ensure that any additional columns present in the input CSV are included as key-value pairs under each unit's JSON object, preserving their corresponding values. Do not discard any columns containing relevant data.
-    
-    Important: Only include fields and values that exist in the input CSV. Do not generate or infer any values that are not explicitly present in the input.
+        Other fields (like Charge Codes, vtrash, pest, etc.) should only appear if they are explicitly in the input.
 
 
-    3. **Formatting Details:**
-       - The final output should be a JSON object or an array of objects, where each object represents a single unit’s data.
-       - Convert all date fields into the format "YYYY-MM-DD".
-       - Represent numeric values (like Net sf, Market Rent) as numbers where possible.
-       - Include all relevant fields from the CSV. If a value is missing or empty, you may omit that field or set it to null.
 
-    4. **Data Integrity:**
-       - If columns are missing, make reasonable assumptions or leave them out.
-       - Map Occupancy Status / Code based on available data. If the unit appears occupied or has a tenant, consider it "Occupied".
-       - Derive the Floor Plan Code or Lease Term if such information can be inferred from the CSV or leave it out if not available.
+        1. Extract Exact Fields and Values
+        - Use only fields and data explicitly present in the CSV input.
+        - Do not create or guess new fields or values.
+        - If any field in the CSV is missing or its value is empty (e.g., null, "", or similar), preserve the field but set its value to null.
 
-    5. **Example:**
-       Given input similar to:
 
+        2. Handling Specific Fields
+        - Floor Plan Code: If not explicitly available in the CSV, include it in the final JSON and set its value to null.
+        - Occupancy Status / Code: If not explicitly available in the CSV, include it in the final JSON and set its value to null.
+        - Other Fields:
+        - If a field is completely absent from the CSV, omit it from the final JSON.
+        - If the field exists but its value is empty, set its value to null.
+
+        3. Don’t Assume Any Specific Field Names
+        Fields like vtrash, pest, resins, ubfee are simply examples of possible custom charge codes or dynamic keys. In practice, your JSON might have entirely different keys:
+
+        - parking_fee
+        - pet_rent
+        - insurance_charge
+        - …or any number of other fields.
+        Your approach should be completely agnostic to the actual field name. The key principle is:
+
+        If a key is present in the input JSON, include it in the output. If it’s missing in the input, do not add it to the output.
+
+        4. JSON Structure
+        - The final output must be an array of objects, with each object corresponding to a single unit from the CSV input.
+        - Each key in the JSON object should match exactly the key from the CSV input (except for the columns you must include even if they’re missing, like Floor Plan Code).
+        Numeric fields (e.g., Net sf, Market Rent) should be converted to numbers if possible.
+        - Date-like fields (e.g., Move In Date, Lease Expiration) must be converted to "YYYY-MM-DD" if they are valid dates. If they are invalid, set the value to null.
+        - Do not include extra fields or rename existing fields.
+
+        5. No Assumptions or Inferences
+        - Do not assume or infer values for fields or data that are missing in the CSV.
+        - If Floor Plan Code or Occupancy Status is missing, explicitly include them in the output with a value of null.
+        - For numeric fields, if the value is missing or empty, do not assume it to be zero; leave it as null instead.
+
+        6. Example
+        Example Input (CSV snippet):
         Unit,Sqft,Tenant Name,Market Rent,Misc,Move In Date,Lease Expiration,Move Out Date
-        201,1065,Regina Hawkins,975,3,09/01/2023,08/31/2024,
-    
-        Produce:
-        {201: [{'Unit No.': 201, 'Floor Plan Code': 'E', 'Net sf': 1065, 'Occupancy Status / Code': 'Occupied', 'Market Rent': 975, 'Lease Expiration': '2024-08-31', 'Move In Date': '2023-09-01', 'Rent': 975, 'Misc': 0}]}
+            201,1065,Regina Hawkins,975,3,09/01/2023,08/31/2024,
 
-        """
+        Produce:
+            {201: [{'Unit No.': 201, 'Floor Plan Code': 'E', 'Net sf': 1065, 'Occupancy Status / Code': 'Occupied', 'Market Rent': 975, 'Lease Expiration': '2024-08-31', 'Move In Date': '2023-09-01', 'Actual Rent': 975, 'Misc': 0}]}
+
+    '''
     # Set your OpenAI API key securely (already set in standardize_data)
     # openai.api_key = st.secrets["OPENAI_API_KEY"]
 
@@ -667,7 +685,7 @@ def llm_processing(unit_df):
     os.makedirs(output_dir)
 
 
-    def majority_voting(user_prompt, num_requests=5):
+    def majority_voting(user_prompt, num_requests=1):
         """
         Implements the majority voting technique for JSON responses from an LLM.
 
@@ -744,11 +762,67 @@ def llm_processing(unit_df):
 
         messages = [
             {"role": "system", "content": instructions_prompt},
-            {"role": "user", "content": "Your primary goal: Analyze the user-provided CSV input and convert it into a JSON structure that only captures the information present in the CSV file. Do not assume or infer new values, columns, or fields. Only include data that is explicitly present in the CSV file, including dynamic columns. If a value is missing or empty, set it to null or omit it entirely. Your output must strictly reflect the contents of the CSV file without introducing any external data or assumptions.\n\n" +prompt},
+            {"role": "user", "content": 
+              '''
+
+                        Your primary goal is to process the provided CSV input, which might not be fully structured, and convert it into a clean, structured JSON output. Follow these rules strictly:
+
+                        1. Input Specifications:
+                        - You will receive a CSV input containing rows of unit data.
+                        - The CSV may have missing or improperly formatted fields.
+
+                        2. Processing Rules:
+                        Field Inclusion
+
+                        Only include columns explicitly present in the CSV.
+                        Do not infer or create new fields unless explicitly mentioned below.
+                        Handling Missing/Empty Fields
+
+                        If a column doesn’t exist in the CSV at all, omit it entirely from the JSON output (unless explicitly required below).
+                        If a column exists but the value is null, "", or otherwise invalid, keep that field in the output but set its value to null.
+                        Formatting Requirements
+
+                        Dates: Convert valid date fields to "YYYY-MM-DD". If invalid or empty, set to null.
+                        Numeric Fields: Ensure numeric columns (e.g., Sqft, Market Rent) are numbers in the JSON output if they contain valid numbers. Otherwise, set to null.
+                        Text Fields: Keep original text values as is. If invalid or empty, set to null.
+                        Special Fields
+
+                        Floor Plan Code or Occupancy Status: If missing in the CSV, explicitly include them in the JSON with a value of null.
+                        Dynamic/Charge code fields: 
+                        If the CSV has additional columns (e.g., “Charge Code”, “Misc”), retain them without modification or renaming.
+                        Don’t Assume Any Specific Field Names
+                        Fields like vtrash, pest, resins, ubfee are simply examples of possible custom charge codes or dynamic keys. In practice, your CSV input might have entirely different keys:
+                        - parking_fee
+                        - pet_rent
+                        - insurance_charge
+                        - …or any number of other fields.
+
+
+                        3. Output Requirements
+                        JSON Structure
+
+                        The output must be an array of objects, where each object represents a single row (unit) from the CSV.
+                        Maintain the original column names from the CSV as the JSON keys.
+                        Data Consistency
+
+                        Numbers should remain numeric.
+                        Strings remain text.
+                        Null for missing or empty values.
+                        Do not introduce assumptions or external data.
+                        No Extra Fields
+
+                        Do not add columns that weren’t in the CSV (except for Floor Plan Code or Occupancy Status if they were missing).
+                        Do not modify or rename existing columns.
+
+
+                        Here’s the CSV input:
+
+                ''' +prompt
+             },
         ]
 
         response = client.chat.completions.create(
-            model="ft:gpt-4o-mini-2024-07-18:radix:rent-roll-processor:AfEoZsW7",
+            model="ft:gpt-4o-mini-2024-07-18:radix:rent-roll-processor-v01:Age52GN8",
             messages=messages,
           response_format={
             "type": "json_object"
