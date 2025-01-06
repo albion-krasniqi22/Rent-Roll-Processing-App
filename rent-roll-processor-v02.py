@@ -13,6 +13,13 @@ import glob
 import warnings
 warnings.filterwarnings("ignore")
 
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+from datetime import datetime
+
+DRIVE_FOLDER_ID = "1lapnvddBE44KyFlG0oCcxoUpaotHC_HP"
+
 # =============== 1. Put all your function definitions here ===============
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -751,10 +758,150 @@ def refine_dataframe(df):
     return refined_df
 
 
+def get_drive_service():
+    """Initialize and return Google Drive service"""
+    credentials_info = {
+        "type": "service_account",
+        "project_id": st.secrets["project_id"],
+        "private_key_id": st.secrets["private_key_id"],
+        "private_key": st.secrets["private_key"],
+        "client_email": st.secrets["client_email"],
+        "client_id": st.secrets["client_id"],
+        "auth_uri": st.secrets["auth_uri"],
+        "token_uri": st.secrets["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["client_x509_cert_url"]
+    }
+
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_info, scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    service = build('drive', 'v3', credentials=credentials)
+    return service
+
+def check_file_exists(service, filename):
+    """Check if file already exists in the Drive folder"""
+    try:
+        response = service.files().list(
+            q=f"name='{filename}' and '{DRIVE_FOLDER_ID}' in parents and trashed=false",
+            spaces='drive',
+            fields='files(id, name)'
+        ).execute()
+        
+        files = response.get('files', [])
+        return files[0]['id'] if files else None
+        
+    except Exception as e:
+        st.error(f"Error checking file existence: {str(e)}")
+        return None
+
+def upload_to_drive(buffer, original_filename, property_name=None, as_of_date=None):
+    """Upload or update file in Google Drive"""
+    try:
+        service = get_drive_service()
+        
+        # Get the base filename and extension
+        base_name = original_filename.rsplit('.', 1)[0]
+        ext = '.xlsx'
+        final_filename = f"{base_name}_processed{ext}"
+        
+        # Check if file already exists
+        existing_file_id = check_file_exists(service, final_filename)
+        
+        if existing_file_id:
+            # Update existing file
+            file_metadata = {'name': final_filename}
+            media = MediaIoBaseUpload(buffer, 
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                resumable=True)
+            
+            file = service.files().update(
+                fileId=existing_file_id,
+                body=file_metadata,
+                media_body=media
+            ).execute()
+            
+            return True, f"File updated successfully with ID: {file.get('id')}"
+        else:
+            # Create new file
+            file_metadata = {
+                'name': final_filename,
+                'parents': [DRIVE_FOLDER_ID]
+            }
+            
+            media = MediaIoBaseUpload(buffer,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                resumable=True)
+            
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+            
+            return True, f"New file uploaded successfully with ID: {file.get('id')}"
+    
+    except Exception as e:
+        return False, f"Error uploading to Drive: {str(e)}"
+
+def upload_original_to_drive(file_buffer):
+    """Upload or update original file in Google Drive"""
+    try:
+        service = get_drive_service()
+        original_filename = file_buffer.name
+        
+        # Check if file already exists
+        existing_file_id = check_file_exists(service, original_filename)
+        
+        if existing_file_id:
+            # Update existing file
+            file_metadata = {'name': original_filename}
+            media = MediaIoBaseUpload(file_buffer,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                resumable=True)
+            
+            file = service.files().update(
+                fileId=existing_file_id,
+                body=file_metadata,
+                media_body=media
+            ).execute()
+            
+            return True, f"Original file updated successfully with ID: {file.get('id')}"
+        else:
+            # Create new file
+            file_metadata = {
+                'name': original_filename,
+                'parents': [DRIVE_FOLDER_ID]
+            }
+            
+            media = MediaIoBaseUpload(file_buffer,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                resumable=True)
+            
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+            
+            return True, f"Original file uploaded successfully with ID: {file.get('id')}"
+    
+    except Exception as e:
+        return False, f"Error uploading original file: {str(e)}"
+
 def standardize_data_workflow(file_buffer):
-    """
-    End-to-end function for data standardization with Streamlit interface
-    """
+    with st.spinner('Uploading original file...'):
+        # Reset file buffer position
+        file_buffer.seek(0)
+        success, message = upload_original_to_drive(file_buffer)
+        if success:
+            st.success("✅ " + message)
+        else:
+            st.error("❌ " + message)
+    
+    # Reset file buffer position for processing
+    file_buffer.seek(0)
+    
     # Step 1: Load Excel file
     sheet_data = load_excel_file(file_buffer)
     if sheet_data is None or sheet_data.empty:
@@ -864,15 +1011,33 @@ def standardize_data_workflow(file_buffer):
         except Exception as e:
             st.error(f"Error dropping columns: {str(e)}")
 
-    # Save to Excel
+    # Save and upload processed file
     buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name="Processed")
     
+    # Rewind buffer
+    buffer.seek(0)
+    
+    # Upload to Google Drive
+    with st.spinner('Uploading processed file...'):
+        original_filename = file_buffer.name
+        success, message = upload_to_drive(
+            buffer, 
+            original_filename,
+            property_name=property_name,
+            as_of_date=as_of_date
+        )
+        
+        if success:
+            st.success("✅ " + message)
+        else:
+            st.error("❌ " + message)
+    
+    # Still provide download option
+    buffer.seek(0)
     return df
 
-
-#########################
-# Example Streamlit App
-#########################
 
 def main():
     st.title("Rent Roll Standardization Demo")
