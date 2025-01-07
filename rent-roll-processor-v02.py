@@ -988,10 +988,11 @@ def standardize_data_workflow(file_buffer):
     # Step 8: Finalize columns with date formatting
     with st.spinner('Finalizing columns...'):
         df = finalize_columns(df)
-        display_headers_info(df, "Data After Finalizing Columns with Date Formatting:")
         st.write(f"Total Rows: {len(df)}")
         unique_units = df["Unit No."].nunique()
         st.write(f"Unique Units: {unique_units}")
+        display_headers_info(df, "Data After Finalizing Columns with Date Formatting:")
+
 
     # Process occupancy status
     st.write("### Step 2")
