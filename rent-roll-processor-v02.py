@@ -289,11 +289,10 @@ def make_column_names_unique(column_names):
             counts[col] += 1
             cols[idx] = f"{col}_{counts[col]}"
         else:
-            counts[col] = 0
-            if duplicates[idx]:
-                # If the very first time we see a duplicate, rename it
-                cols[idx] = f"{col}_{counts[col]}"
+            counts[col] = 0  # Initialize counter for the first occurrence
+
     return cols.tolist()
+
 
 
 def drop_unnecessary_rows(df):
