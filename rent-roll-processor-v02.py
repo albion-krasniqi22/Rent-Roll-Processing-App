@@ -1041,7 +1041,7 @@ def standardize_data_workflow(file_buffer):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df = add_metadata_rows(df, property_name, as_of_date)
-        df.to_excel(writer, index=False, sheet_name="Processed")
+        df.to_excel(writer, index=False, sheet_name="Processed", header=False)
     
     # Rewind buffer
     buffer.seek(0)
