@@ -195,7 +195,7 @@ def standardization_instructions():
     - Floor Plan Code: Includes variations like "Floor Plan", "Plan Code", "Floorplan", "Unit Type", Bd/Ba, "Type"
     - Net sf: Includes variations like "Sqft", "Unit Sqft", "Square Feet", "Sq. Ft."
     -  Occupancy Status / Code: Includes variations like "Unit Status", "Lease Status", "Occupancy", "Unit/Lease Status"
-    - Market Rent: Includes variations like "Market Rent", "Market + Addl.", 'Gross Market Rent'
+    - Market Rent: Includes variations like "Market Rent", "Market + Addl.", "Gross Market Rent", "Market"
     - Lease Start Date: Includes variations like "Lease Start", "Lease Start Date", "Start of Lease" (not lease name)
     - Lease Expiration: Includes variations like "Lease End", "Lease End Date", "Lease Expiration Date"
     - Move In Date: Includes variations like "Move-In", "Move In Date", "Move In"
