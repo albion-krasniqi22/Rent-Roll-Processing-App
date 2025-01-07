@@ -786,9 +786,9 @@ def add_metadata_rows(df, property_name, as_of_date):
     # Create the data for the Excel file
     data = []
     
-    # Add metadata rows
-    data.append(['Property Name:', property_name] + [''] * (len(headers) - 2))
-    data.append(['As of Date:', as_of_date] + [''] * (len(headers) - 2))
+    # Add metadata rows (combined label and value in first cell)
+    data.append([f'Property Name: {property_name}'] + [''] * (len(headers) - 1))
+    data.append([f'As of Date: {as_of_date}'] + [''] * (len(headers) - 1))
     
     # Add column headers
     data.append(headers)
