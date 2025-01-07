@@ -778,6 +778,29 @@ def get_drive_service():
     service = build('drive', 'v3', credentials=credentials)
     return service
 
+def add_metadata_rows(df, property_name, as_of_date):
+    """Add property name and as-of date before the column headers"""
+    # Get column headers
+    headers = df.columns.tolist()
+    
+    # Create the data for the Excel file
+    data = []
+    
+    # Add metadata rows
+    data.append(['Property Name:', property_name] + [''] * (len(headers) - 2))
+    data.append(['As of Date:', as_of_date] + [''] * (len(headers) - 2))
+    
+    # Add column headers
+    data.append(headers)
+    
+    # Add the DataFrame data
+    data.extend(df.values.tolist())
+    
+    # Create new DataFrame without headers (they're now in the data)
+    final_df = pd.DataFrame(data)
+    
+    return final_df
+
 def check_file_exists(service, filename):
     """Check if file already exists in the Drive folder"""
     try:
@@ -1017,6 +1040,7 @@ def standardize_data_workflow(file_buffer):
     # Save and upload processed file
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df = add_metadata_rows(df, property_name, as_of_date)
         df.to_excel(writer, index=False, sheet_name="Processed")
     
     # Rewind buffer
