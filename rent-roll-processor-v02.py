@@ -1085,7 +1085,7 @@ def main():
             # Allow user to download results
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                final_df.to_excel(writer, index=False, sheet_name="Processed")
+                final_df.to_excel(writer, index=False, header=False, sheet_name="Processed")
             download_data = buffer.getvalue()
 
             st.download_button(
