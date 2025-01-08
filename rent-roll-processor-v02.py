@@ -1077,7 +1077,7 @@ def main():
         st.session_state.processed_df = None
 
     st.write("Upload an Excel file to process:")
-    uploaded_file = st.file_uploader("Choose an .xlsx file", type=["xlsx"])
+    uploaded_file = st.file_uploader("Choose an .xlsx file", type=["xlsx", "xls"])
 
     if uploaded_file is not None and st.session_state.processed_df is None:
         st.write("Processing file...")
