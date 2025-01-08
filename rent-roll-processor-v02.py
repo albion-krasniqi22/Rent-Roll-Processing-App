@@ -366,6 +366,7 @@ def finalize_columns(df):
         "Lease Term (months)",
         "Move In Date",
         "Move Out Date",
+        "Leave Column Blank"
     ]
 
     # 0) Filter out rows that lack a valid "Unit No."
