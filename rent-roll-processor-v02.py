@@ -1072,32 +1072,40 @@ def main():
 
     openai.api_key = st.secrets["OPENAI_API_KEY"]
 
+    # Initialize session state for processed data
+    if 'processed_df' not in st.session_state:
+        st.session_state.processed_df = None
+
     st.write("Upload an Excel file to process:")
     uploaded_file = st.file_uploader("Choose an .xlsx file", type=["xlsx"])
 
-    if uploaded_file is not None:
+    if uploaded_file is not None and st.session_state.processed_df is None:
         st.write("Processing file...")
-        final_df = standardize_data_workflow(uploaded_file)
+        st.session_state.processed_df = standardize_data_workflow(uploaded_file)
 
-        if final_df is not None:
-            st.success("Processing Complete!")
-            st.dataframe(final_df)
+    if st.session_state.processed_df is not None:
+        st.success("Processing Complete!")
+        st.dataframe(st.session_state.processed_df)
 
-            # Allow user to download results
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                final_df.to_excel(writer, index=False, header=False, sheet_name="Processed")
-            download_data = buffer.getvalue()
+        # Allow user to download results
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            st.session_state.processed_df.to_excel(writer, index=False, header=False, sheet_name="Processed")
+        download_data = buffer.getvalue()
 
-            st.download_button(
-                label="Download Processed Rent Roll",
-                data=download_data,
-                file_name="processed_rent_roll.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        # Use original filename
+        original_filename = uploaded_file.name
+        base_name = original_filename.rsplit('.', 1)[0]
+        processed_filename = f"{base_name}_processed.xlsx"
+
+        st.download_button(
+            label="Download Processed Rent Roll",
+            data=download_data,
+            file_name=processed_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     else:
         st.info("Awaiting file upload...")
-
 
 if __name__ == "__main__":
     main()
