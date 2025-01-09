@@ -20,18 +20,16 @@ from datetime import datetime
 
 DRIVE_FOLDER_ID = "1vg2uwp8PmeZ-pivoolRR25gj5Hdwmufm"
 
-# =============== 1. Put all your function definitions here ===============
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# For demonstration, I'm including only the key ones. You can copy all from your script.
 def display_headers_info(df, message=""):
     """
     Print a message and then show a few rows to see the headers visually (in Streamlit).
     """
     if message:
         st.write(message)
-    st.dataframe(df.head())
+    st.dataframe(df.head(5))
     #st.write("Columns:", list(df.columns))
     #st.write("Shape:", df.shape)
     st.write("-" * 100)
@@ -128,15 +126,12 @@ def identify_header_candidates(sheet_data, keywords):
     Find rows that contain multiple keyword matches as candidate header rows.
     Returns a DataFrame of candidate header rows (if any).
     """
-    # Convert all cells to lowercase strings (handle NaNs)
     normalized_data = sheet_data.applymap(lambda x: str(x).lower() if pd.notnull(x) else '')
     
-    # Count how many keywords appear in each row
     normalized_data['keyword_count'] = normalized_data.apply(
         lambda row: sum(row.str.contains('|'.join(keywords), regex=True)), axis=1
     )
     
-    # Candidate rows: containing >=3 hits from the keyword list
     header_candidates = normalized_data[normalized_data['keyword_count'] >= 3]
     
     return header_candidates
@@ -201,7 +196,7 @@ def standardization_instructions():
     - Move In Date: Includes variations like "Move-In", "Move In Date", "Move In"
     - Move Out Date: Includes variations like "Move-Out", "Move Out Date", "Move Out"
     - Charge Codes: Includes variations like "Trans Code", "Charge Codes", "Description", "Lease Charges"
-    - Amount: these are charges in dollar amount (which is different from charge code), Charges or credits
+    - Amount: these are charges in dollar amount (which is different from charge code), Charges or credits, Scheduled Charges (not actual charges)
 
     Examples of Standardized Headers:
     Unit No., Floor Plan Code, Sqft, Occupancy Status, Market Rent, Lease Start Date, Lease Expiration, Move In Date, Move-Out Date, Charge Codes
@@ -326,7 +321,7 @@ def find_breaking_point(data):
                     net_sf = 0  # Default to 0 if conversion fails
 
             if not (
-                ('Net sf' not in row or (pd.notnull(net_sf) and net_sf < 10000)) and
+                ('Net sf' not in row or (pd.notnull(net_sf) and net_sf < 3000)) and
                 (any(
                     pd.notnull(row[col]) and float(str(row[col]).replace(',', '')) < 10000
                     for col in rent_columns
@@ -383,8 +378,10 @@ def finalize_columns(df):
         print("No 'Charge Codes'/'Amount' in DataFrame => single-line scenario. No pivoting will occur.")
 
     # 2) Define columns to combine into the unique key
-    group_cols = [c for c in df.columns if c not in ("Charge Codes", "Amount")]
-
+    intersection_cols = [c for c in df.columns 
+                        if c not in ("Charge Codes", "Amount") 
+                        and c in desired_columns]
+    group_cols = intersection_cols
     # ------------------------------------------------------------------------
     if "Amount" in df.columns:
         df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
@@ -977,15 +974,33 @@ def standardize_data_workflow(file_buffer):
         sheet_data.columns = new_header.values
         data_start_idx = header_row_index + 1
         df = sheet_data[data_start_idx:].reset_index(drop=True)
-        #display_headers_info(df, "Data After Setting Headers (Raw):")
         
         # Clean column names
         df.columns = df.columns.fillna('')
+        
+        # 1) Find the first occurrence of 5+ consecutive unnamed columns
+        consecutive_count = 0
+        cutoff_index = None
+        
+        for idx, col in enumerate(df.columns):
+            if col.strip() == '':
+                consecutive_count += 1
+                if consecutive_count >= 5 and cutoff_index is None:
+                    # Mark where the run of 5 unnamed columns started
+                    cutoff_index = idx - 4  
+            else:
+                consecutive_count = 0
+        
+        # 2) If we found 5+ consecutive unnamed columns, drop everything from that start onward
+        if cutoff_index is not None:
+            df = df.iloc[:, :cutoff_index]
+            st.write(f"Dropped all columns at/after index {cutoff_index} because we found 5+ consecutive unnamed columns.")
+
+        # 3) Now drop any remaining unnamed columns individually
         empty_name_cols = df.columns[df.columns.str.strip() == '']
         if len(empty_name_cols) > 0:
-            #st.write(f"Detected columns with empty names: {list(empty_name_cols)}")
             df.drop(columns=empty_name_cols, inplace=True)
-            #display_headers_info(df, "Data After Dropping Empty Column Names:")
+            st.write("Dropped remaining unnamed columns.")
 
     # Step 5: Standardize headers with GPT
     with st.spinner('Standardizing headers...'):
@@ -1000,6 +1015,10 @@ def standardize_data_workflow(file_buffer):
     with st.spinner('Dropping unnecessary rows...'):
         df = drop_unnecessary_rows(df)
         #display_headers_info(df, "DataFrame After Dropping Unnecessary Rows:")
+
+    # Step 6: Drop rows containing 'total'
+    with st.spinner('Dropping total rows...'):
+        df = drop_total_rows(df)
 
     # Step 7: Find and apply breaking point
     with st.spinner('Finding breaking point...'):
@@ -1062,7 +1081,6 @@ def standardize_data_workflow(file_buffer):
         else:
             st.error("❌ " + message)
     
-    # Still provide download option
     buffer.seek(0)
     return df
 
@@ -1106,6 +1124,32 @@ def main():
         )
     else:
         st.info("Awaiting file upload...")
+
+def drop_total_rows(df):
+    """
+    Drop any rows that contain variations of the word 'total' in any column.
+    Returns the DataFrame with those rows removed.
+    """
+    # Convert all values to string and lowercase for comparison
+    df_str = df.astype(str).apply(lambda x: x.str.lower())
+    
+    # Define variations of 'total' to look for
+    total_variations = ['total', 'totals', 'subtotal', 'sub-total', 'sub total']
+    
+    # Create a mask that identifies rows containing any variation of 'total'
+    total_mask = df_str.apply(
+        lambda x: ~x.str.contains('|'.join(total_variations), na=False)
+    ).all(axis=1)
+    
+    # Apply the mask and reset index
+    cleaned_df = df[total_mask].reset_index(drop=True)
+    
+    # Log how many rows were removed
+    rows_removed = len(df) - len(cleaned_df)
+    if rows_removed > 0:
+        print(f"Removed {rows_removed} rows containing variations of 'total'")
+    
+    return cleaned_df
 
 if __name__ == "__main__":
     main()
