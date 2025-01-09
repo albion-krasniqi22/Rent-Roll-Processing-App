@@ -693,7 +693,7 @@ def get_columns_to_drop(columns):
     3. Do not keep calculated metrics per square footage that are not directly needed:
     4. Be conservative:
         - Keep more columns rather than accidentally dropping something essential.
-        - If in doubt, retain the column. comrent keep, future lease (F)
+        - If in doubt, retain the column. comrent keep, future lease (F), concessions, write off
 
     **Columns to Keep**:
     - Columns related to property information:
