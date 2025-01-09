@@ -194,13 +194,13 @@ def standardization_instructions():
         - Avoid "Unit No.": Clearly specifies that this rule applies only to the "Unit" column and not to "Unit No.".
     - Floor Plan Code: Includes variations like "Floor Plan", "Plan Code", "Floorplan", "Unit Type", Bd/Ba, "Type"
     - Net sf: Includes variations like "Sqft", "Unit Sqft", "Square Feet", "Sq. Ft."
-    -  Occupancy Status / Code: Includes variations like "Unit Status", "Lease Status", "Occupancy", "Unit/Lease Status"
+    - Occupancy Status / Code: Includes variations like "Unit Status", "Lease Status", "Occupancy", "Unit/Lease Status"
     - Market Rent: Includes variations like "Market Rent", "Market + Addl.", "Gross Market Rent", "Market"
     - Lease Start Date: Includes variations like "Lease Start", "Lease Start Date", "Start of Lease" (not lease name)
     - Lease Expiration: Includes variations like "Lease End", "Lease End Date", "Lease Expiration Date"
     - Move In Date: Includes variations like "Move-In", "Move In Date", "Move In"
     - Move Out Date: Includes variations like "Move-Out", "Move Out Date", "Move Out"
-    - Charge Codes: Includes variations like "Trans Code", "Charge Codes", "Description"
+    - Charge Codes: Includes variations like "Trans Code", "Charge Codes", "Description", "Lease Charges"
     - Amount: these are charges in dollar amount (which is different from charge code), Charges or credits
 
     Examples of Standardized Headers:
