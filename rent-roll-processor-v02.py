@@ -372,11 +372,11 @@ def finalize_columns(df):
 
     # 1) Detect if we have the columns needed to pivot charges
     has_charge_codes = ("Charge Codes" in df.columns and "Amount" in df.columns)
-    if has_charge_codes:
-        print("Detected scenario with 'Charge Codes' & 'Amount'. We will pivot them.")
-    else:
-        print("No 'Charge Codes'/'Amount' in DataFrame => single-line scenario. No pivoting will occur.")
 
+    if not has_charge_codes and "Amount" in df.columns:
+        desired_columns.append("Amount")
+        print("Single-line scenario detected. Preserving Amount column.")
+        
     # 2) Define columns to combine into the unique key
     intersection_cols = [c for c in df.columns 
                         if c not in ("Charge Codes", "Amount") 
@@ -409,6 +409,10 @@ def finalize_columns(df):
     all_cols = df.columns.tolist()
     aggregations = {col: "first" for col in all_cols if col not in ["Charge Codes", "Amount"]}
 
+    # For single-line scenarios, include Amount in the aggregations
+    if not has_charge_codes and "Amount" in df.columns:
+        aggregations["Amount"] = "first"
+
     grouped = df.groupby("unique_key", as_index=False).agg(aggregations)
 
     # 6) Pivot 'Charge Codes' & 'Amount' if needed
@@ -425,9 +429,9 @@ def finalize_columns(df):
         # Merge pivoted table with the grouped DataFrame
         grouped = pd.merge(grouped, pivoted_charges, on="unique_key", how="left")
 
-        # Now drop 'unique_key' again if it re-appeared
-        if "unique_key" in grouped.columns:
-            grouped.drop(columns=["unique_key"], inplace=True)
+    # Drop 'unique_key' if it exists
+    if "unique_key" in grouped.columns:
+        grouped.drop(columns=["unique_key"], inplace=True)
 
     # 7) Ensure 'desired_columns' exist in the result
     for col in desired_columns:
