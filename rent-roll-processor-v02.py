@@ -321,7 +321,7 @@ def find_breaking_point(data):
                     net_sf = 0  # Default to 0 if conversion fails
 
             if not (
-                ('Net sf' not in row or (pd.notnull(net_sf) and net_sf < 3000)) and
+                ('Net sf' not in row or (pd.notnull(net_sf) and net_sf < 5000)) and
                 (any(
                     pd.notnull(row[col]) and float(str(row[col]).replace(',', '')) < 10000
                     for col in rent_columns
