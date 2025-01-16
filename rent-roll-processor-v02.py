@@ -333,13 +333,11 @@ def find_breaking_point(data):
             if not (
                 ('Net sf' not in row or (pd.notnull(net_sf) and net_sf < 5000)) and
                 (any(
-                    #pd.isnull(row[col]) or float(str(row[col]).replace(',', '')) < 10000
                     pd.notnull(row[col]) and float(str(row[col]).replace(',', '')) < 10000
                     for col in rent_columns
-                ) or (lease_start_exists)))
+                ) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
             ):
                 return index
-
 
             if 'Occupancy Status' in data.columns:
                 if pd.notnull(row.get('Occupancy Status / Code')) and not isinstance(row.get('Occupancy Status / Code'), str):
