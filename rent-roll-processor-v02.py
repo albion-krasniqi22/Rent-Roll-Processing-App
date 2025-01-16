@@ -330,6 +330,10 @@ def find_breaking_point(data):
                 except ValueError:
                     net_sf = 0  # Default to 0 if conversion fails
 
+            for rent_col in rent_columns:
+                if pd.isnull(row.get(rent_col)):
+                    data.at[index, rent_col] = 0
+
             if not (
                 ('Net sf' not in row or (pd.notnull(net_sf) and net_sf < 5000)) and
                 (any(
