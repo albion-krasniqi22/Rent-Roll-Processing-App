@@ -302,6 +302,16 @@ def drop_unnecessary_rows(df):
     numeric_filter = df.apply(lambda row: any(pd.to_numeric(row, errors='coerce').notnull()), axis=1)
     df = df[numeric_filter].reset_index(drop=True)
 
+    charge_columns = ['Charge Codes', 'Amount']
+    other_columns = [col for col in df.columns if col not in charge_columns]
+
+    empty_unit_mask = df['Unit No.'].isna()
+
+    # For rows with empty Unit No., set all other columns (except charge_columns) to NaN
+    for col in other_columns:
+        if col != 'Unit No.':  
+            df.loc[empty_unit_mask, col] = np.nan
+
     after_count = len(df)
     print(f"Dropped {before_count - after_count} rows that contained no numeric values.")
     return df
