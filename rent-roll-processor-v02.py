@@ -499,9 +499,9 @@ def process_row(row):
         You are a data processing assistant. I will provide you with rows of data from a CSV file, each representing information about a rental unit. Your task is to categorize the Occupancy Status / Code for each row based on these refined rules:
         Occupied: The row contains a tenant name, and at least one of the following fields: lease start date, lease expiration date, or move-in date. Additional charges may also be present along with the market rent. If the status indicates “current” or “notice,” it is considered as Occupied.
         Vacant: The tenant name is absent or displays ‘Vacant.’ Lease-related fields (dates) are empty. Market rent is present, but no other charges exist.
-        Model: The tenant name displays ‘Model,’ or the row explicitly indicates it is an administrative unit (e.g., ‘Admin’). Market rent is present, but no other charges or lease-related information are included.
+        Model: The tenant name displays ‘Model,’ or the row explicitly indicates it is an administrative unit. Market rent is present, but no other charges or lease-related information are included.
         Priority Rule: If both Model and Vacant are present, classify the row as Model.
-        Admin: If the row explicitly states it is an administrative unit but does not meet the criteria for any of the above categories, classify it as Admin.
+        Admin: If the row explicitly states it is an administrative unit (e.g. Admin/Down, Admin) but does not meet the criteria for any of the above categories, classify it as Admin. If both Admin and Vacant are present, classify the row as Admin.
         Applicant: A tenant name is present, and lease-related fields (e.g., dates) may be present. Only market rent is listed; no other charges are included.  The row may explicitly mention “Applicant.”
         Special Cases: Rows marked as “pending renewals” are also classified as Applicant.
         
