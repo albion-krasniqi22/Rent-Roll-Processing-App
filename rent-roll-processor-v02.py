@@ -195,7 +195,7 @@ def standardization_instructions():
     - Lease Expiration: Includes variations like "Lease End", "Lease End Date", "Lease Expiration Date"
     - Move In Date: Includes variations like "Move-In", "Move In Date", "Move In"
     - Move Out Date: Includes variations like "Move-Out", "Move Out Date", "Move Out"
-    - Charge Codes: Includes variations like "Trans Code", "Charge Codes", "Description", "Lease Charges"
+    - Charge Codes: Includes variations like "Trans Code", "Charge Codes", "Description", "Lease Charges", "Values"
     - Amount: these are charges in dollar amount (which is different from charge code), Charges or credits, Scheduled Charges, and Actual charges (do not rename Recurring Charges, Monthly Charges, Monthly Rent).
 
     Examples of Standardized Headers:
