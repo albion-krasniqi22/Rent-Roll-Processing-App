@@ -571,7 +571,7 @@ def process_pair(pair, property_name, as_of_date):
 
         Key Information:
         Property Name: {property_name}
-        Reference Date: {as_of_date}
+        Reference Date: {as_of_date} if this is None take today's date as a placeholder.
 
         Occupancy Status Definitions:
         You cannot have same status for same unit no make your best guess out of the two pairs.
