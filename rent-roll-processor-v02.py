@@ -938,6 +938,7 @@ def upload_original_to_drive(file_buffer):
     except Exception as e:
         return False, f"Error uploading original file: {str(e)}"
 
+
 def standardize_data_workflow(file_buffer):
     with st.spinner('Uploading original file...'):
         # Reset file buffer position
@@ -1130,9 +1131,49 @@ def main():
         st.write("Processing file...")
         st.session_state.processed_df = standardize_data_workflow(uploaded_file)
 
+    
     if st.session_state.processed_df is not None:
         st.success("Processing Complete!")
         st.dataframe(st.session_state.processed_df)
+
+        # Add Summary Statistics
+        st.write("### Summary Statistics")
+        
+        # Get the actual data (ignore the first two rows which contain metadata)
+        data_df = st.session_state.processed_df.iloc[2:].copy()
+        # Convert column names from the first row to actual column names
+        data_df.columns = st.session_state.processed_df.iloc[2]
+        data_df = data_df.iloc[1:].reset_index(drop=True)
+
+        # Basic counts
+        st.write(f"**Total Rows:** {len(data_df)}")
+        st.write(f"**Unique Units:** {data_df['Unit No.'].nunique()}")
+        
+        # Occupancy Status Distribution
+        st.write("\n**Occupancy Status Distribution:**")
+        occupancy_counts = data_df['Occupancy Status / Code'].value_counts()
+        st.write(pd.DataFrame({
+            'Status': occupancy_counts.index,
+            'Count': occupancy_counts.values
+        }))
+        
+        st.write("\n**Rent Summary:**")
+        rent_cols = [col for col in data_df.columns if any(term in col.lower() for term in ['rent', 'fee'])]
+        rent_summary = {}
+        for col in rent_cols:
+            try:
+                # Convert to numeric, coercing errors to NaN
+                values = pd.to_numeric(data_df[col], errors='coerce')
+                total = values.sum()
+                rent_summary[col] = {
+                    'Total': f"${total:,.2f}"
+                }
+            except Exception as e:
+                continue
+        
+        # Display rent summary as a DataFrame
+        rent_df = pd.DataFrame(rent_summary).transpose()
+        st.write(rent_df)
 
         # Allow user to download results
         buffer = io.BytesIO()
