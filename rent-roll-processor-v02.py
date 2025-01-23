@@ -685,8 +685,16 @@ def refine_occupancy_status(df, max_workers, property_name, as_of_date, max_retr
     # 4. Update future lease indicator for Applicants
     df.loc[df['Occupancy Status / Code'] == 'Applicant', 'Enter "F" for Future Lease'] = 'F'
 
-    return df
+    applicant_mask = df['Occupancy Status / Code'] == 'Applicant'
+    
+    # Split the DataFrame into non-Applicant and Applicant rows
+    non_applicant_df = df[~applicant_mask].copy()
+    applicant_df = df[applicant_mask].copy()
+    
+    # Concatenate the DataFrames with Applicant rows at the bottom
+    df = pd.concat([non_applicant_df, applicant_df], ignore_index=True)
 
+    return df
 
 def get_columns_to_drop(columns):
     """
