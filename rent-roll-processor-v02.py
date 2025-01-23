@@ -599,7 +599,8 @@ def process_pair(pair, property_name, as_of_date):
         Please respond with one status per row, in the format:
         Row 1: <status>
         Row 2: <status>
-        
+
+        Only return the category as the output (Occupied, Vacant, Applicant).
         """
     
     try:
