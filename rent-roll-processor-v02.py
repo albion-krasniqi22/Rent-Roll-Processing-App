@@ -482,7 +482,7 @@ def finalize_columns(df):
         if col in final_df.columns:
             final_df[col] = (
                 pd.to_datetime(final_df[col], errors="coerce")
-                .dt.strftime("%Y-%m-%d")
+                .dt.strftime("%m/%d/%Y")
             )
     final_df = final_df.dropna(subset=["Unit No."]).reset_index(drop=True)
     return final_df
