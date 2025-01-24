@@ -1161,49 +1161,67 @@ def main():
         st.success("Processing Complete!")
         st.dataframe(st.session_state.processed_df)
 
-        # Add Summary Statistics
-        st.write("### Summary Statistics")
-        
-        # Get the actual data (ignore the first two rows which contain metadata)
-        data_df = st.session_state.processed_df.iloc[2:].copy()
-        # Convert column names from the first row to actual column names
-        data_df.columns = st.session_state.processed_df.iloc[2]
-        data_df = data_df.iloc[1:].reset_index(drop=True)
-
-        # Basic counts
-        st.write(f"**Total Rows:** {len(data_df)}")
-        st.write(f"**Unique Units:** {data_df['Unit No.'].nunique()}")
-        
-        # Occupancy Status Distribution
-        st.write("\n**Occupancy Status Distribution:**")
-        occupancy_counts = data_df['Occupancy Status / Code'].value_counts()
-        st.write(pd.DataFrame({
-            'Status': occupancy_counts.index,
-            'Count': occupancy_counts.values
-        }))
-        
-        st.write("\n**Rent Summary:**")
-        rent_cols = [col for col in data_df.columns if any(term in col.lower() for term in ['rent', 'fee'])]
-        rent_summary = {}
-        for col in rent_cols:
-            try:
-                # Convert to numeric, coercing errors to NaN
-                values = pd.to_numeric(data_df[col], errors='coerce')
-                total = values.sum()
-                rent_summary[col] = {
-                    'Total': f"${total:,.2f}"
-                }
-            except Exception as e:
-                continue
-        
-        # Display rent summary as a DataFrame
-        rent_df = pd.DataFrame(rent_summary).transpose()
-        st.write(rent_df)
-
         # Allow user to download results
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            # Write the processed data to the first sheet
             st.session_state.processed_df.to_excel(writer, index=False, header=False, sheet_name="Processed")
+            
+            # Create summary statistics for the second sheet
+            data_df = st.session_state.processed_df.iloc[2:].copy()
+            data_df.columns = st.session_state.processed_df.iloc[2]
+            data_df = data_df.iloc[1:].reset_index(drop=True)
+            
+            # Create summary sheet data
+            summary_data = []
+            
+            # Add basic counts
+            summary_data.extend([
+                ["Summary Statistics"],
+                [""],
+                ["Basic Counts"],
+                ["Total Rows", len(data_df)],
+                ["Unique Units", data_df['Unit No.'].nunique()],
+                [""]
+            ])
+            
+            # Add occupancy distribution
+            summary_data.extend([["Occupancy Status Distribution"], [""]])
+            occupancy_counts = data_df['Occupancy Status / Code'].value_counts()
+            summary_data.extend([["Status", "Count"]])
+            for status, count in occupancy_counts.items():
+                summary_data.append([status, count])
+            summary_data.append([""])
+            
+            # Add rent summary
+            summary_data.extend([["Rent Summary"], [""]])
+            rent_cols = [col for col in data_df.columns if any(term in col.lower() for term in ['rent', 'fee'])]
+            summary_data.extend([["Category", "Total"]])
+            for col in rent_cols:
+                try:
+                    values = pd.to_numeric(data_df[col], errors='coerce')
+                    total = values.sum()
+                    summary_data.append([col, f"${total:,.2f}"])
+                except Exception:
+                    continue
+            
+            # Write summary statistics to second sheet
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, index=False, header=False, sheet_name="Summary Statistics")
+            
+            # Adjust column widths in summary sheet
+            worksheet = writer.sheets["Summary Statistics"]
+            for idx, col in enumerate(worksheet.columns):
+                max_length = 0
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                worksheet.column_dimensions[worksheet.cell(row=1, column=idx+1).column_letter].width = adjusted_width
+
         download_data = buffer.getvalue()
 
         # Use original filename
