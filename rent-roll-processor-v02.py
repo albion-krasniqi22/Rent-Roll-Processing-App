@@ -1117,6 +1117,47 @@ def standardize_data_workflow(file_buffer):
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df = add_metadata_rows(df, property_name, as_of_date)
         df.to_excel(writer, index=False, sheet_name="Processed", header=False)
+
+    # Save and upload processed file
+    if df is not None:  # Only proceed if we have data
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            # Write the processed data to first sheet
+            df.to_excel(writer, index=False, sheet_name="Processed")
+            
+            # Create summary statistics sheet
+            # Get the actual data
+            data_df = df.copy()
+            
+            # Create summary statistics DataFrame
+            summary_data = []
+            
+            # Basic counts
+            summary_data.append(['Total Rows', len(data_df)])
+            summary_data.append(['Unique Units', data_df['Unit No.'].nunique()])
+            summary_data.append([])  # Empty row for spacing
+            
+            # Occupancy Status Distribution
+            summary_data.append(['Occupancy Status Distribution'])
+            occupancy_counts = data_df['Occupancy Status / Code'].value_counts()
+            for status, count in occupancy_counts.items():
+                summary_data.append([status, count])
+            summary_data.append([])  # Empty row for spacing
+            
+            # Rent Summary
+            summary_data.append(['Rent Summary'])
+            rent_cols = [col for col in data_df.columns if any(term in col.lower() for term in ['rent', 'fee'])]
+            for col in rent_cols:
+                try:
+                    values = pd.to_numeric(data_df[col], errors='coerce')
+                    total = values.sum()
+                    summary_data.append([col, f"${total:,.2f}"])
+                except Exception as e:
+                    continue
+            
+            # Convert summary data to DataFrame and write to Excel
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary Statistics', index=False, header=False)
     
     # Rewind buffer
     buffer.seek(0)
