@@ -783,6 +783,31 @@ def refine_dataframe(df):
     refined_df = drop_unnecessary_columns(df, columns_to_drop)
     return refined_df
 
+def drop_total_rows(df):
+    """
+    Drop any rows that contain variations of the word 'total' in any column.
+    Returns the DataFrame with those rows removed.
+    """
+    # Convert all values to string and lowercase for comparison
+    df_str = df.astype(str).apply(lambda x: x.str.lower())
+    
+    # Define variations of 'total' to look for
+    total_variations = ['total', 'totals', 'subtotal', 'sub-total', 'sub total']
+    
+    # Create a mask that identifies rows containing any variation of 'total'
+    total_mask = df_str.apply(
+        lambda x: ~x.str.contains('|'.join(total_variations), na=False)
+    ).all(axis=1)
+    
+    # Apply the mask and reset index
+    cleaned_df = df[total_mask].reset_index(drop=True)
+    
+    # Log how many rows were removed
+    rows_removed = len(df) - len(cleaned_df)
+    if rows_removed > 0:
+        print(f"Removed {rows_removed} rows containing variations of 'total'")
+    
+    return cleaned_df
 
 def get_drive_service():
     """Initialize and return Google Drive service"""
@@ -1136,49 +1161,46 @@ def main():
         st.success("Processing Complete!")
         st.dataframe(st.session_state.processed_df)
 
-        # Add Summary Statistics
-        st.write("### Summary Statistics")
-        
-        # Get the actual data (ignore the first two rows which contain metadata)
-        data_df = st.session_state.processed_df.iloc[2:].copy()
-        # Convert column names from the first row to actual column names
-        data_df.columns = st.session_state.processed_df.iloc[2]
-        data_df = data_df.iloc[1:].reset_index(drop=True)
-
-        # Basic counts
-        st.write(f"**Total Rows:** {len(data_df)}")
-        st.write(f"**Unique Units:** {data_df['Unit No.'].nunique()}")
-        
-        # Occupancy Status Distribution
-        st.write("\n**Occupancy Status Distribution:**")
-        occupancy_counts = data_df['Occupancy Status / Code'].value_counts()
-        st.write(pd.DataFrame({
-            'Status': occupancy_counts.index,
-            'Count': occupancy_counts.values
-        }))
-        
-        st.write("\n**Rent Summary:**")
-        rent_cols = [col for col in data_df.columns if any(term in col.lower() for term in ['rent', 'fee'])]
-        rent_summary = {}
-        for col in rent_cols:
-            try:
-                # Convert to numeric, coercing errors to NaN
-                values = pd.to_numeric(data_df[col], errors='coerce')
-                total = values.sum()
-                rent_summary[col] = {
-                    'Total': f"${total:,.2f}"
-                }
-            except Exception as e:
-                continue
-        
-        # Display rent summary as a DataFrame
-        rent_df = pd.DataFrame(rent_summary).transpose()
-        st.write(rent_df)
-
         # Allow user to download results
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            st.session_state.processed_df.to_excel(writer, index=False, header=False, sheet_name="Processed")
+            # Write the processed data to first sheet
+            st.session_state.processed_df.to_excel(writer, index=False, sheet_name="Processed")
+            
+            # Create summary statistics sheet
+            # Get the actual data
+            data_df = st.session_state.processed_df.copy()
+            
+            # Create summary statistics DataFrame
+            summary_data = []
+            
+            # Basic counts
+            summary_data.append(['Total Rows', len(data_df)])
+            summary_data.append(['Unique Units', data_df['Unit No.'].nunique()])
+            summary_data.append([])  # Empty row for spacing
+            
+            # Occupancy Status Distribution
+            summary_data.append(['Occupancy Status Distribution'])
+            occupancy_counts = data_df['Occupancy Status / Code'].value_counts()
+            for status, count in occupancy_counts.items():
+                summary_data.append([status, count])
+            summary_data.append([])  # Empty row for spacing
+            
+            # Rent Summary
+            summary_data.append(['Rent Summary'])
+            rent_cols = [col for col in data_df.columns if any(term in col.lower() for term in ['rent', 'fee'])]
+            for col in rent_cols:
+                try:
+                    values = pd.to_numeric(data_df[col], errors='coerce')
+                    total = values.sum()
+                    summary_data.append([col, f"${total:,.2f}"])
+                except Exception as e:
+                    continue
+            
+            # Convert summary data to DataFrame and write to Excel
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary Statistics', index=False, header=False)
+
         download_data = buffer.getvalue()
 
         # Use original filename
@@ -1194,32 +1216,6 @@ def main():
         )
     else:
         st.info("Awaiting file upload...")
-
-def drop_total_rows(df):
-    """
-    Drop any rows that contain variations of the word 'total' in any column.
-    Returns the DataFrame with those rows removed.
-    """
-    # Convert all values to string and lowercase for comparison
-    df_str = df.astype(str).apply(lambda x: x.str.lower())
-    
-    # Define variations of 'total' to look for
-    total_variations = ['total', 'totals', 'subtotal', 'sub-total', 'sub total']
-    
-    # Create a mask that identifies rows containing any variation of 'total'
-    total_mask = df_str.apply(
-        lambda x: ~x.str.contains('|'.join(total_variations), na=False)
-    ).all(axis=1)
-    
-    # Apply the mask and reset index
-    cleaned_df = df[total_mask].reset_index(drop=True)
-    
-    # Log how many rows were removed
-    rows_removed = len(df) - len(cleaned_df)
-    if rows_removed > 0:
-        print(f"Removed {rows_removed} rows containing variations of 'total'")
-    
-    return cleaned_df
 
 if __name__ == "__main__":
     main()
