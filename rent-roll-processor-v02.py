@@ -184,7 +184,7 @@ def standardization_instructions():
 
     Standardized Column Headers:
     - Unit No.: Includes variations such as:
-        - "Unit", "Unit Id", "Unit Number", "bldg-unit", "apt #", "apt number"
+        - "Unit", "Unit Id", "Unit Number", "bldg-unit", "apt #", "apt number", "Suite"
         - Columns containing the substring "Id" can be mapped to "Unit" only if no other "Unit"-related columns (e.g., "Unit", "Unit Number", etc.) are available.
         - Avoid "Unit No.": Clearly specifies that this rule applies only to the "Unit" column and not to "Unit No."., cols like Lease ID, Resh ID should not be Unit No.
     - Floor Plan Code: Includes variations like "Floor Plan", "Plan Code", "Floorplan", "Unit Type", Bd/Ba, "Type"
