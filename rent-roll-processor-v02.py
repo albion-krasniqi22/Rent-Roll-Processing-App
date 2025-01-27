@@ -136,7 +136,6 @@ def identify_header_candidates(sheet_data, keywords):
     
     return header_candidates
 
-
 def merge_and_select_first_header_to_bottom(df, keyword_column, keywords):
     """
     If consecutive rows might each contain partial headers, 
@@ -1145,59 +1144,106 @@ def standardize_data_workflow(file_buffer):
     buffer.seek(0)
     return df
 
-def generate_observations_via_gpt(data_df, as_of_date):
-    """
-    Use GPT to analyze rent roll data and generate specific observations about dates and rent.
-    """
-    # Calculate rent statistics
+def generate_observations(data_df, as_of_date):
+    # Convert as_of_date to datetime
+    try:
+        as_of_date = pd.to_datetime(as_of_date)
+    except:
+        as_of_date = pd.Timestamp.today()
+
+    # Prepare data summary for GPT
+    summary = {
+        "date_issues": [],
+        "rent_issues": [],
+        "sqft_issues": []
+    }
+
+    # Date analysis
+    date_columns = {
+        'Lease Start Date': 'lease start',
+        'Move In Date': 'move-in',
+        'Lease Expiration': 'lease end',
+        'Move Out Date': 'move-out'
+    }
+
+    for col, desc in date_columns.items():
+        if col in data_df.columns:
+            dates = pd.to_datetime(data_df[col], errors='coerce')
+            if desc in ['lease start', 'move-in']:
+                future_dates = data_df[dates > as_of_date]
+                if not future_dates.empty:
+                    units = future_dates['Unit No.'].tolist()
+                    summary['date_issues'].append(f"{len(units)} units have {desc} dates after {as_of_date.strftime('%Y-%m-%d')}: {', '.join(map(str, units[:5]))}")
+            elif desc in ['lease end', 'move-out']:
+                past_dates = data_df[dates < as_of_date]
+                if not past_dates.empty:
+                    units = past_dates['Unit No.'].tolist()
+                    summary['date_issues'].append(f"{len(units)} units have {desc} dates before {as_of_date.strftime('%Y-%m-%d')}: {', '.join(map(str, units[:5]))}")
+
+    # Rent analysis
     market_rent_col = next((col for col in data_df.columns if 'market rent' in col.lower()), None)
     if market_rent_col:
-        market_rents = pd.to_numeric(data_df[market_rent_col], errors='coerce')
+        # Clean market rent values by removing commas and converting to numeric
+        market_rents = data_df[market_rent_col].astype(str).str.replace(',', '').str.replace('$', '')
+        market_rents = pd.to_numeric(market_rents, errors='coerce')
+        
         median_rent = market_rents.median()
         low_threshold = median_rent * 0.6
         high_threshold = median_rent * 1.4
-    
-    # Create the prompt for GPT
-    prompt = f"""
-    As a real estate analyst, review this rent roll data and provide specific observations based on the following checks:
 
-    As of Date: {as_of_date} if that's none that use today's date.
+        # Check for missing or negative rents
+        missing_rent = data_df[market_rents.isna()]['Unit No.'].tolist()
+        if missing_rent:
+            summary['rent_issues'].append(f"{len(missing_rent)} units have no market rent reported: {', '.join(map(str, missing_rent[:5]))}")
 
-    Please structure your response in these exact sections:
+        negative_rent = data_df[market_rents < 0]['Unit No.'].tolist()
+        if negative_rent:
+            summary['rent_issues'].append(f"{len(negative_rent)} units have negative market rent: {', '.join(map(str, negative_rent[:5]))}")
 
-    1. Date Consistency Checks:
-    - Verify if the as-of date is consistent with the data
-    - List specific units with lease start/move-in dates after the as-of date
-    - List specific units with lease end/move-out dates before the as-of date
+        # Check for outlier rents
+        low_rent = data_df[market_rents < low_threshold]['Unit No.'].tolist()
+        if low_rent:
+            summary['rent_issues'].append(f"{len(low_rent)} units have market rent below 60% of median (${median_rent:.2f}): {', '.join(map(str, low_rent[:5]))}")
 
-    2. Rent Analysis:
-    - Identify any units with no rent reported or negative rent
-    - Flag units where rent is less than 60% or greater than 140% of the median rent
-    - Note any patterns in rent anomalies (e.g., if they correspond to specific unit types or statuses)
+        high_rent = data_df[market_rents > high_threshold]['Unit No.'].tolist()
+        if high_rent:
+            summary['rent_issues'].append(f"{len(high_rent)} units have market rent above 140% of median (${median_rent:.2f}): {', '.join(map(str, high_rent[:5]))}")
 
-    3. Square Footage Analysis:
-    - Identify any units with no square footage reported or negative square footage
-
-    Format your observations as bullet points, and when mentioning specific units, use the format:
-    "Unit# XXX has [issue description]" or "N units have [issue description]"
-
-    Be specific about numbers and include actual unit numbers when relevant.
-    If you find no issues in a particular category, explicitly state that no issues were found.
-    """
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a precise real estate analyst who provides detailed observations about rent roll data, focusing on specific units and numerical patterns."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3  # Lower temperature for more consistent, focused responses
-        )
+    # Square footage analysis
+    sqft_col = next((col for col in data_df.columns if 'net sf' in col.lower()), None)
+    if sqft_col:
+        # Clean square footage values by removing commas
+        sqft = data_df[sqft_col].astype(str).str.replace(',', '')
+        sqft = pd.to_numeric(sqft, errors='coerce')
         
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error generating observations: {str(e)}"
+        missing_sqft = data_df[sqft.isna()]['Unit No.'].tolist()
+        if missing_sqft:
+            summary['sqft_issues'].append(f"{len(missing_sqft)} units have no square footage reported: {', '.join(map(str, missing_sqft[:5]))}")
+
+        negative_sqft = data_df[sqft < 0]['Unit No.'].tolist()
+        if negative_sqft:
+            summary['sqft_issues'].append(f"{len(negative_sqft)} units have negative square footage: {', '.join(map(str, negative_sqft[:5]))}")
+
+    # Format the analysis
+    analysis = ["1. Date Consistency Checks:"]
+    if summary['date_issues']:
+        analysis.extend(f"- {issue}" for issue in summary['date_issues'])
+    else:
+        analysis.append("- No date consistency issues found")
+
+    analysis.extend(["", "2. Rent Analysis:"])
+    if summary['rent_issues']:
+        analysis.extend(f"- {issue}" for issue in summary['rent_issues'])
+    else:
+        analysis.append("- No rent anomalies found")
+
+    analysis.extend(["", "3. Square Footage Analysis:"])
+    if summary['sqft_issues']:
+        analysis.extend(f"- {issue}" for issue in summary['sqft_issues'])
+    else:
+        analysis.append("- No square footage issues found")
+
+    return "\n".join(analysis)
 
 
 def main():
@@ -1284,7 +1330,7 @@ def main():
 
 
             as_of_date = st.session_state.processed_df.iloc[1, 0].split(': ')[1]
-            observations = generate_observations_via_gpt(data_df, as_of_date)
+            observations = generate_observations(data_df, as_of_date)
 
             observations_data = [
                 ["Data Analysis Observations"],
@@ -1314,7 +1360,6 @@ def main():
         )
     else:
         st.info("Awaiting file upload...")
-
 
 if __name__ == "__main__":
     main()
