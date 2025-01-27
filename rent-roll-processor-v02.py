@@ -1145,6 +1145,60 @@ def standardize_data_workflow(file_buffer):
     buffer.seek(0)
     return df
 
+def generate_observations_via_gpt(data_df, as_of_date):
+    """
+    Use GPT to analyze rent roll data and generate specific observations about dates and rent.
+    """
+    # Calculate rent statistics
+    market_rent_col = next((col for col in data_df.columns if 'market rent' in col.lower()), None)
+    if market_rent_col:
+        market_rents = pd.to_numeric(data_df[market_rent_col], errors='coerce')
+        median_rent = market_rents.median()
+        low_threshold = median_rent * 0.6
+        high_threshold = median_rent * 1.4
+    
+    # Create the prompt for GPT
+    prompt = f"""
+    As a real estate analyst, review this rent roll data and provide specific observations based on the following checks:
+
+    As of Date: {as_of_date} if that's none that use today's date.
+
+    Please structure your response in these exact sections:
+
+    1. Date Consistency Checks:
+    - Verify if the as-of date is consistent with the data
+    - List specific units with lease start/move-in dates after the as-of date
+    - List specific units with lease end/move-out dates before the as-of date
+
+    2. Rent Analysis:
+    - Identify any units with no rent reported or negative rent
+    - Flag units where rent is less than 60% or greater than 140% of the median rent
+    - Note any patterns in rent anomalies (e.g., if they correspond to specific unit types or statuses)
+
+    3. Square Footage Analysis:
+    - Identify any units with no square footage reported or negative square footage
+
+    Format your observations as bullet points, and when mentioning specific units, use the format:
+    "Unit# XXX has [issue description]" or "N units have [issue description]"
+
+    Be specific about numbers and include actual unit numbers when relevant.
+    If you find no issues in a particular category, explicitly state that no issues were found.
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a precise real estate analyst who provides detailed observations about rent roll data, focusing on specific units and numerical patterns."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3  # Lower temperature for more consistent, focused responses
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error generating observations: {str(e)}"
+
 
 def main():
     st.title("Rent Roll Standardization Demo")
@@ -1227,6 +1281,23 @@ def main():
                         pass
                 adjusted_width = (max_length + 2)
                 worksheet.column_dimensions[worksheet.cell(row=1, column=idx+1).column_letter].width = adjusted_width
+
+
+            as_of_date = st.session_state.processed_df.iloc[1, 0].split(': ')[1]
+            observations = generate_observations_via_gpt(data_df, as_of_date)
+
+            observations_data = [
+                ["Data Analysis Observations"],
+                [""],
+                *[[line.strip()] for line in observations.split('\n') if line.strip()]
+            ]
+            observations_df = pd.DataFrame(observations_data)
+            observations_df.to_excel(writer, index=False, header=False, sheet_name="Observations")
+            
+            # Adjust column widths in observations sheet
+            worksheet = writer.sheets["Observations"]
+            max_length = max(len(str(cell[0])) for cell in observations_data)
+            worksheet.column_dimensions['A'].width = min(max_length + 2, 100)  # Cap width at 100 characters
 
         download_data = buffer.getvalue()
 
