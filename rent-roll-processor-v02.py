@@ -336,11 +336,17 @@ def find_breaking_point(data):
                     data.at[index, rent_col] = 0
 
             if not (
-                ('Net sf' not in row or (pd.notnull(net_sf) and net_sf < 5000)) and
-                (any(
-                    pd.notnull(row[col]) and float(str(row[col]).replace(',', '')) < 10000
-                    for col in rent_columns
-                ) or (lease_start_exists and pd.notnull(row.get('Lease Start Date'))))
+                (
+                    'Net sf' not in row or 
+                    pd.isnull(net_sf) or  # Allow net_sf to be empty
+                    (pd.notnull(net_sf) and net_sf < 5000)
+                ) and
+                (
+                    any(
+                        pd.notnull(row[col]) and float(str(row[col]).replace(',', '')) < 10000
+                        for col in rent_columns
+                    ) or (lease_start_exists and pd.notnull(row.get('Lease Start Date')))
+                )
             ):
                 return index
 
@@ -1237,6 +1243,7 @@ def main():
         )
     else:
         st.info("Awaiting file upload...")
+
 
 if __name__ == "__main__":
     main()
