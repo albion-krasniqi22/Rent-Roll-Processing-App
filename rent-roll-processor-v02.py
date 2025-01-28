@@ -414,7 +414,8 @@ def finalize_columns(df):
     group_cols = intersection_cols
     # ------------------------------------------------------------------------
     if "Amount" in df.columns:
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+        df['Amount'] = df['Amount'].astype(str).str.replace('$', '').str.replace(',', '').str.strip()
+        df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce')
 
     # Instead of unconditional forward fill, do a "block-based" approach:
     # Mark each row that starts a new block whenever *any* group_col is non-null
