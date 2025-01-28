@@ -42,9 +42,14 @@ def load_excel_file(filepath):
     try:
         df = pd.read_excel(filepath, sheet_name=0, header=None)
         return df
-    except Exception as e:
-        st.error(f"Error reading Excel file: {e}")
-        return None
+    except Exception as excel_error:
+        try:
+            # If Excel fails, try reading as standard CSV
+            df = pd.read_csv(filepath, header=None)
+            return df
+        except Exception as csv_error:
+            st.error(f"Error reading Excel file: {excel_error}")
+            return None
 
 def read_top_rows(file_buffer, max_rows=10):
     """
