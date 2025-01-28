@@ -56,7 +56,13 @@ def read_top_rows(file_buffer, max_rows=10):
     Reads the top 'max_rows' from the uploaded Excel file (no header)
     and converts them into a single text block.
     """
-    df_top = pd.read_excel(file_buffer, nrows=max_rows, header=None)
+    df_top = load_excel_file(file_buffer)
+    if df_top is None:
+        return None
+        
+    # Take only the first max_rows
+    df_top = df_top.head(max_rows)
+    
     lines = []
     for _, row in df_top.iterrows():
         row_str = " | ".join(str(x) for x in row if pd.notnull(x))
