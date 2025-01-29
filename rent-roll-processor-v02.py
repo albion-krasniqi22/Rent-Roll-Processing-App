@@ -1058,15 +1058,15 @@ def standardize_data_workflow(file_buffer):
             if col.strip() == '':
                 consecutive_count += 1
                 if consecutive_count >= 10 and cutoff_index is None:
-                    # Mark where the run of 5 unnamed columns started
+                    # Mark where the run of 10 unnamed columns started
                     cutoff_index = idx - 9  
             else:
                 consecutive_count = 0
         
-        # 2) If we found 5+ consecutive unnamed columns, drop everything from that start onward
+        # 2) If we found 10+ consecutive unnamed columns, drop everything from that start onward
         if cutoff_index is not None:
             df = df.iloc[:, :cutoff_index]
-            st.write(f"Dropped all columns at/after index {cutoff_index} because we found 5+ consecutive unnamed columns.")
+            st.write(f"Dropped all columns at/after index {cutoff_index} because we found 10+ consecutive unnamed columns.")
 
         # 3) Now drop any remaining unnamed columns individually
         empty_name_cols = df.columns[df.columns.str.strip() == '']
