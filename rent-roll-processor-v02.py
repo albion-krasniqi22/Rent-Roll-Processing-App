@@ -1057,9 +1057,9 @@ def standardize_data_workflow(file_buffer):
         for idx, col in enumerate(df.columns):
             if col.strip() == '':
                 consecutive_count += 1
-                if consecutive_count >= 5 and cutoff_index is None:
+                if consecutive_count >= 10 and cutoff_index is None:
                     # Mark where the run of 5 unnamed columns started
-                    cutoff_index = idx - 4  
+                    cutoff_index = idx - 9  
             else:
                 consecutive_count = 0
         
