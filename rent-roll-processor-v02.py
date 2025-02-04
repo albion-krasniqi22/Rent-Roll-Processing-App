@@ -689,7 +689,7 @@ def process_single_pair(pair, property_name, as_of_date, max_retries=3):
 
 
 
-def refine_pairs_parallel(df, pairs, property_name, as_of_date, max_retries=3, max_workers=10):
+def refine_pairs_parallel(df, pairs, property_name, as_of_date, max_retries=3, max_workers=100):
     all_results = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1115,7 +1115,7 @@ def standardize_data_workflow(file_buffer):
     with st.spinner('Processing occupancy status...'):
         try:
             property_name, as_of_date = get_property_info(file_buffer)
-            df = refine_occupancy_status(df, max_workers=50, 
+            df = refine_occupancy_status(df, max_workers=500, 
                                      property_name=property_name, as_of_date=as_of_date)
             
         except Exception as e:
