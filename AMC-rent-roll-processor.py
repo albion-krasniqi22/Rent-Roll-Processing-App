@@ -1077,7 +1077,7 @@ def standardize_data_workflow(file_buffer):
     with st.spinner('Pre-processing special columns...'):
         df = pre_process_special_columns(df)
         st.write("Data after pre-processing special columns:")
-        st.dataframe(df.head(10))
+        st.dataframe(df.head(5))
 
 
     # Step 5: Standardize headers with GPT
