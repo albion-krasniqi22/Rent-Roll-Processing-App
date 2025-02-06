@@ -1265,7 +1265,7 @@ def generate_observations(data_df, as_of_date):
 
 
 def main():
-    st.title("AMC Rent Roll Standardization - Albulena's App")
+    st.title("AMC Rent Roll Standardization")
 
     openai.api_key = st.secrets["OPENAI_API_KEY"]
 
