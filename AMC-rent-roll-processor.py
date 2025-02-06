@@ -205,7 +205,7 @@ def standardization_instructions():
     - Lease Start Date: Includes variations like "Lease Start", "Lease Start Date", "Start of Lease" (not lease name)
     - Lease Expiration: Includes variations like "Lease End", "Lease End Date", "Lease Expiration Date"
     - Move In Date: Includes variations like "Move-In", "Move In Date", "Move In"
-    - Move Out Date: Includes variations like "Move-Out", "Move Out Date", "Move Out"
+    - Move Out Date: Includes variations like "Move-Out", "Move Out Date", "Move Out", "Notice"
     - Charge Codes: Includes variations like "Trans Code", "Charge Codes", "Description", "Lease Charges", "Codes"
     - Amount: these are charges in dollar amount (which is different from charge code), "Values", "Lease Rent", "Charges or credits", "Scheduled Charges", and "Actual charges" (do not rename Recurring Charges, Monthly Charges, Monthly Rent).
 
