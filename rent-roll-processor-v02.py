@@ -329,6 +329,7 @@ def drop_unnecessary_rows(df):
 
 
 def find_breaking_point(data):
+    data.replace('-', np.nan, inplace=True)
     for index, row in data.iterrows():
         if pd.notnull(row.get('Unit No.')):
             lease_start_exists = 'Lease Start Date' in data.columns
@@ -353,7 +354,7 @@ def find_breaking_point(data):
                 ) and
                 (
                     any(
-                        pd.notnull(row[col]) and float(str(row[col]).replace(',', '').replace('-', '')) < 10000
+                        pd.notnull(row[col]) and float(str(row[col]).replace(',', '')) < 10000
                         for col in rent_columns
                     ) or (lease_start_exists and pd.notnull(row.get('Lease Start Date')))
                 )
