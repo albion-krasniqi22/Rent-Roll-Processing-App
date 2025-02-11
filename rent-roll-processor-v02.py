@@ -327,26 +327,8 @@ def drop_unnecessary_rows(df):
     print(f"Dropped {before_count - after_count} rows that contained no numeric values.")
     return df
 
-def clean_and_convert(value):
-    """
-    Remove dollar signs, commas, and extra whitespace from the value,
-    then convert it to a float. Returns 0.0 if conversion fails.
-    """
-    if pd.isnull(value):
-        return 0.0
-    try:
-        cleaned = str(value).replace('$', '').replace(',', '').strip()
-        return float(cleaned)
-    except ValueError:
-        return 0.0
-
 
 def find_breaking_point(data):
-    data.replace('-', np.nan, inplace=True)
-
-    for col in rent_columns:
-        data[col] = data[col].apply(clean_and_convert)
-
     for index, row in data.iterrows():
         if pd.notnull(row.get('Unit No.')):
             lease_start_exists = 'Lease Start Date' in data.columns
