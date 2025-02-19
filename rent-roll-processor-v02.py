@@ -1259,7 +1259,7 @@ def generate_observations(data_df, as_of_date):
 
 
 def main():
-    st.title("Rent Roll Standardization Demo")
+    st.title("SmartRoll")
 
     openai.api_key = st.secrets["OPENAI_API_KEY"]
 
