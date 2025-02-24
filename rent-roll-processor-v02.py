@@ -329,6 +329,7 @@ def drop_unnecessary_rows(df):
 
 
 def find_breaking_point(data):
+def find_breaking_point(data):
     for index, row in data.iterrows():
         if pd.notnull(row.get('Unit No.')):
             lease_start_exists = 'Lease Start Date' in data.columns
@@ -337,14 +338,23 @@ def find_breaking_point(data):
             net_sf = row.get('Net sf')
             if pd.notnull(net_sf):
                 try:
-                    net_sf = float(str(net_sf).replace(',', ''))
+                    net_sf = float(str(net_sf).replace(',', '').replace('.', ''))
                 except ValueError:
-                    net_sf = 0  # Default to 0 if conversion fails
+                    net_sf = None  # Leave as None if conversion fails
 
             for rent_col in rent_columns:
-                if pd.isnull(row.get(rent_col)):
-                    data.at[index, rent_col] = 0
+                rent_value = row.get(rent_col)
 
+                if pd.notnull(rent_value):  # Only process non-null values
+                    try:
+                        # Remove thousand separators and ensure valid float conversion
+                        clean_value = str(rent_value).replace(',', '').replace('.', '')  # Remove incorrect separators
+                        clean_value = float(clean_value)
+                        data.at[index, rent_col] = clean_value
+                    except ValueError:
+                        pass  # Leave the original value if conversion fails
+
+            
             if not (
                 (
                     'Net sf' not in row or 
