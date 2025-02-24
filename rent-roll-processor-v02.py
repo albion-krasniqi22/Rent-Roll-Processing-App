@@ -329,7 +329,6 @@ def drop_unnecessary_rows(df):
 
 
 def find_breaking_point(data):
-def find_breaking_point(data):
     for index, row in data.iterrows():
         if pd.notnull(row.get('Unit No.')):
             lease_start_exists = 'Lease Start Date' in data.columns
